@@ -4,6 +4,14 @@ An open-source Windows utility for the Canon EOS 600D / Rebel T3i. The target is
 
 **Version 0.3 connects the real USB camera to a Windows virtual camera. OBS 32.0.2 preview and recording have been verified.** Studio also provides local MP4 recording with a separate microphone. Zoom, Meet and browser compatibility still need individual tests. No Canon SDK, Webcam Utility subscription, firmware modification, or replacement USB driver is required.
 
+## Download a compiled build
+
+Get the **Windows x64 ZIP** from [the v0.3.0 preview release](https://github.com/Wrenbjor/cannon_eos_custom_display/releases/tag/v0.3.0), extract the entire folder, and read START-HERE.md. Choose the asset named `Open-EOS-Studio-0.3.0-windows-x64.zip`; GitHub's "Source code" archives do not contain executables. A SHA-256 checksum accompanies the ZIP.
+
+To run it, you need **Windows 11 x64**, Microsoft's current [Visual C++ x64 Redistributable](https://aka.ms/vc14/vc_redist.x64.exe), Windows media components and a graphics driver supporting OpenGL 3.3 or newer. Windows N editions also require the [Media Feature Pack](https://support.microsoft.com/en-us/windows/experience/platform-variants/media-feature-pack-for-windows-n). No Rust, C++ compiler, CMake, Python, FFmpeg or PowerShell 7 installation is needed to run the compiled app. Administrator rights are needed once for virtual-camera registration; normal use runs without elevation. The preview binaries are not code-signed.
+
+Want to compile it? See **[Build on Windows 11 x64](#build-on-windows-11-x64)** below and the **[complete setup and troubleshooting guide](docs/building.md)**.
+
 ## Use the camera in OBS
 
 1. From a packaged build, run **Install virtual camera.cmd** once and accept the Windows administrator prompt. From source, run `./scripts/install-camera.ps1`. This registers the source DLL in a protected Program Files directory.
@@ -48,15 +56,40 @@ Still missing: full-resolution JPEG/CR2 capture/download, exposure controls, mod
 
 ## Build on Windows 11 x64
 
-Install Rust via rustup and Visual Studio 2022 Build Tools or newer with **Desktop development with C++**, CMake, and a Windows 11 SDK (22621 or newer). The toolchain is pinned to Rust 1.94.1; Cargo.lock pins Rust dependencies. The native build uses C++20, downloads a SHA-256-pinned WIL package, and uses the SDK's C++/WinRT headers.
+Install the following on **Windows 11 x64**. Build in Windows PowerShell 7, not WSL or a MinGW shell.
+
+| Prerequisite | Download / installer selection |
+|---|---|
+| Git for Windows | [Official x64 installer](https://git-scm.com/install/windows); add Git to PATH |
+| PowerShell 7 | [Microsoft installation guide](https://learn.microsoft.com/en-us/powershell/scripting/install/install-powershell-on-windows); use `pwsh` |
+| Visual Studio 2022 Build Tools or newer | [Microsoft downloads](https://visualstudio.microsoft.com/downloads/); select **Desktop development with C++** / **C++ build tools** |
+| MSVC x64/x86 compiler and linker | Keep the C++ workload's x64/x86 toolset selected; C++20 is required |
+| Windows 11 SDK | Select **10.0.22621.0 or newer**; local development used 10.0.26100.0 |
+| CMake 3.24 or newer | Select **C++ CMake tools for Windows** in Visual Studio Installer; the script can find its bundled CMake |
+| Rust via rustup | [Official installer](https://rust-lang.org/tools/install/); use the **x86_64-pc-windows-msvc** host toolchain |
+
+Reopen the terminal after installation. The full Visual Studio IDE and Visual Studio Code are optional. Rustup reads the pinned **Rust 1.94.1**, rustfmt and Clippy requirements from `rust-toolchain.toml`. Cargo.lock pins crates; the native build downloads a SHA-256-pinned WIL package automatically. The first build needs internet access and several gigabytes of disk space for tools/caches. No Canon SDK or libgphoto2 installation is needed.
 
 ```powershell
-git clone git@github.com:Wrenbjor/cannon_eos_custom_display.git
+git clone https://github.com/Wrenbjor/cannon_eos_custom_display.git
 cd cannon_eos_custom_display
 ./scripts/build.ps1
 ```
 
-The build script compiles the GUI, diagnostic CLI and native camera source, then runs formatting, lint, Rust tests (including Windows MP4 encoding and controller shutdown) and native streaming tests. Tests use generated frames/audio and temporary files; they do not capture a microphone, trigger the camera or require camera registration. The `.github/workflows/windows.yml` workflow runs these checks on a Windows runner.
+Run those commands in **PowerShell 7** as a normal user. If execution policy blocks the reviewed script, use `pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/build.ps1`. HTTPS cloning does not require an SSH key or GitHub login.
+
+The full script compiles the GUI, CLI and C++ source, then runs formatting, lint, Rust tests, twelve native streaming formats and a cross-process camera bridge test. Tests use generated frames/audio and temporary files; no camera, microphone capture or camera registration is required. `cargo build --release` alone builds only the Rust executables.
+
+| Built file | Purpose |
+|---|---|
+| `target/release/open-eos-studio.exe` | Launchable Studio window |
+| `target/release/eos-camera.exe` | Diagnostic / recording CLI |
+| `build/vcam/Release/OpenEosCameraSource.dll` | Windows virtual-camera source |
+| `build/vcam/Release/eos-vcam.exe` | Native source diagnostic controller |
+
+To share the newly built feed, run `./scripts/install-camera.ps1` once, accept Windows elevation, then launch the GUI. Close running copies before rebuilding. To make a distributable ZIP from a committed checkout, run `./scripts/package.ps1 -Destination ../Open-EOS-Studio-local`; this builds/tests both components and includes source and license notices.
+
+See [docs/building.md](docs/building.md) for exact setup, smaller development commands, packaging, release automation and common compiler/runtime errors. GitHub Actions builds/tests each push and PR; version tags build and publish preview release assets only after checks pass.
 
 ## Use the camera diagnostic application
 

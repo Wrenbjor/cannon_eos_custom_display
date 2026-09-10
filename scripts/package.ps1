@@ -1,3 +1,4 @@
+#requires -Version 7.0
 param([Parameter(Mandatory)][string]$Destination, [switch]$SkipBuild)
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot -Parent
@@ -11,11 +12,12 @@ try {
     # SkipBuild packages an already validated build (for example, when its GUI
     # remains open for a user's live test). It never bypasses source commit checks.
     if (-not $SkipBuild) {
-        & cargo build --release --locked
-        if ($LASTEXITCODE) { throw 'Release build failed' }
+        & (Join-Path $PSScriptRoot 'build.ps1')
     }
     $metadata = & cargo metadata --locked --format-version 1 --filter-platform x86_64-pc-windows-msvc | ConvertFrom-Json
     if ($LASTEXITCODE) { throw 'Dependency metadata failed' }
+    $version = ($metadata.packages | Where-Object name -eq 'eos-camera' | Select-Object -First 1).version
+    if (-not $version) { throw 'Cannot identify package version' }
     $commit = git rev-parse HEAD
     if ($LASTEXITCODE) { throw 'Cannot identify source revision' }
     New-Item -ItemType Directory -Path $destinationPath | Out-Null
@@ -27,6 +29,7 @@ try {
     Copy-Item -LiteralPath 'LICENSES' -Destination $destinationPath -Recurse
     Copy-Item -LiteralPath 'native/vcam/third_party/MICROSOFT-LICENSE.txt' -Destination (Join-Path $destinationPath 'LICENSES')
     Copy-Item -LiteralPath 'docs/hardware-validation.md' -Destination (Join-Path $destinationPath 'VALIDATION.md')
+    Copy-Item -LiteralPath 'docs/building.md' -Destination (Join-Path $destinationPath 'BUILDING.md')
     & git archive --format=zip "--output=$destinationPath/source.zip" HEAD
     if ($LASTEXITCODE) { throw 'Source archive failed' }
     $notices = [Text.StringBuilder]::new()
@@ -50,7 +53,14 @@ try {
     }
     [IO.File]::WriteAllText((Join-Path $destinationPath 'THIRD-PARTY-NOTICES.txt'), $notices.ToString())
     $startHere = @"
-# Open EOS Studio 0.3.0
+# Open EOS Studio $version
+
+Requires Windows 11 x64 and the Microsoft Visual C++ x64 Redistributable:
+https://aka.ms/vc14/vc_redist.x64.exe
+Windows N editions also need Microsoft's Media Feature Pack. The app uses
+Windows media components and a GPU driver supporting OpenGL 3.3 or newer.
+This preview build is not code-signed. See README.md and BUILDING.md for
+runtime prerequisites, compiler setup, source builds and troubleshooting.
 
 Double-click open-eos-studio.exe. Connect and wake the Canon T3i / 600D.
 Choose rotation/crop, select your separate microphone, then Start recording.
@@ -71,6 +81,8 @@ compatibility still need individual tests. Rotation and crop come from Studio.
 USB live view is 1056 x 704, not native 1080p or full-resolution stills.
 Administrator access is needed only for the one-time virtual-camera registration.
 No Canon Webcam Utility or replacement USB driver is needed.
+Use one camera-consuming app at a time; mixed-resolution simultaneous
+consumers are not working reliably yet.
 
 Source revision: $commit
 Repository: https://github.com/Wrenbjor/cannon_eos_custom_display

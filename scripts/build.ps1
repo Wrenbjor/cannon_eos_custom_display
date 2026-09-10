@@ -1,3 +1,4 @@
+#requires -Version 7.0
 param([switch]$SkipTests)
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot -Parent

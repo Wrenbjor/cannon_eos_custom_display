@@ -1,0 +1,53 @@
+name: Build and publish Windows release
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.94.1
+          components: clippy,rustfmt
+      - name: Verify version tag
+        shell: pwsh
+        run: |
+          $metadata = cargo metadata --locked --no-deps --format-version 1 | ConvertFrom-Json
+          if ($LASTEXITCODE) { throw 'Cannot read Cargo version' }
+          $version = ($metadata.packages | Where-Object name -eq 'eos-camera').version
+          if ($env:GITHUB_REF_NAME -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+$' -or $env:GITHUB_REF_NAME -ne "v$version") {
+            throw 'Release tag must exactly match the Cargo package version'
+          }
+          "EOS_RELEASE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Build and test all components
+        shell: pwsh
+        run: ./scripts/build.ps1
+      - name: Package tested binaries and publish preview release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $name = "Open-EOS-Studio-$env:EOS_RELEASE_VERSION-windows-x64"
+          $destination = Join-Path $env:RUNNER_TEMP $name
+          ./scripts/package.ps1 -Destination $destination -SkipBuild
+          $zip = "$destination.zip"
+          $checksum = "$zip.sha256"
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()
+          "$hash  $name.zip" | Set-Content -LiteralPath $checksum -Encoding ascii
+          gh release create $env:GITHUB_REF_NAME $zip $checksum --repo $env:GITHUB_REPOSITORY --verify-tag --draft --prerelease --title "Open EOS Studio $env:GITHUB_REF_NAME - Windows x64 preview" --notes-file docs/release-notes.md
+          if ($LASTEXITCODE) { throw 'GitHub release publication failed' }
+          gh release edit $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY --draft=false
+          if ($LASTEXITCODE) { throw 'Release uploaded but remains a draft; publication failed' }
