@@ -1,0 +1,7 @@
+/target/
+/build/
+/captures/
+/diagnostics/
+*.user
+*.suo
+.vs/

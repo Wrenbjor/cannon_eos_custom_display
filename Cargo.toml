@@ -1,0 +1,19 @@
+[package]
+name = "eos-camera"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94"
+license = "GPL-3.0-or-later"
+description = "Open Canon EOS diagnostics and capture on Windows"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+jpeg-decoder = "0.3"
+jpeg-encoder = "0.6"
+ctrlc = "3"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Devices_PortableDevices", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_System_Ole", "Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_Threading", "Win32_Security"] }
