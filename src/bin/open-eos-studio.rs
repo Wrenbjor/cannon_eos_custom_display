@@ -1,7 +1,8 @@
 #![windows_subsystem = "windows"]
 
 fn main() {
-    if let Err(error) = eos_camera::gui::run() {
+    let auto_camera = std::env::args().any(|arg| arg == "--virtual-camera");
+    if let Err(error) = eos_camera::gui::run_with_virtual_camera(auto_camera) {
         use windows::{
             Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW},
             core::{HSTRING, w},

@@ -1,6 +1,6 @@
 [package]
 name = "eos-camera"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.94"
 license = "GPL-3.0-or-later"
@@ -18,4 +18,4 @@ eframe = { version = "=0.33.3", default-features = false, features = ["default_f
 cpal = "=0.16.0"
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["Win32_Devices_PortableDevices", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_System_Ole", "Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_Threading", "Win32_Security", "Win32_Media_MediaFoundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62", features = ["Win32_Devices_PortableDevices", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_System_Ole", "Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_Threading", "Win32_Security", "Win32_Media_MediaFoundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_SystemInformation", "Win32_System_Pipes", "Win32_System_IO", "Win32_Security_Authorization"] }

@@ -1,5 +1,25 @@
 # Initial validation — September 10, 2026
 
+## Version 0.3 virtual camera / OBS
+
+The DLL was registered under Program Files and Studio created a current-user, session-lifetime Windows virtual camera. OBS Studio **32.0.2** enumerated **Open EOS Camera (Windows Virtual Camera)** through its ordinary DirectShow Video Capture Device source. The real source preview was visually inspected: upright, in focus and **704 × 1056**.
+
+A separate portable OBS configuration named **Open EOS Test** captured 19.854 seconds of H.264 video and stereo 48 kHz AAC from the Yeti in an MKV file. All **592 decoded video frames** and the audio stream decoded without errors. OBS output was configured at 30 fps; repeated frames are expected because actual USB acquisition was previously measured around 18–20 fps. OBS reported zero skipped encoding frames for the test. The user subsequently made another recording and reported the test successful.
+
+Local checks pass: **16 Rust tests**, **12 native source formats** (six resolutions × NV12/RGB32), and an actual Rust-producer/native-consumer pipe test checking every RGB pixel in a 704 × 1056 output and black output after clearing the producer. Registration, Windows device enumeration and OBS consumption are now tested beyond the direct DLL test.
+
+Known limitation: while OBS consumed the portrait feed, a second DirectShow consumer requesting 1280 × 720 failed with an I/O error. OBS continued operating. Simultaneous clients at different resolutions require investigation. Physical unplug during OBS recording and long-session lip-sync/drift remain untested. Test recordings and OBS settings stay local, outside the repository/package.
+
+| Required client | Real USB feed, version 0.3 |
+|---|---|
+| OBS 32.0.2 ordinary Video Capture Device | Preview and video + separate-microphone recording passed |
+| Zoom desktop | Not tested |
+| Google Meet in Chrome / Edge | Not tested |
+| Chrome / Edge / Firefox camera APIs | Not tested |
+| Windows Camera | Not tested |
+
+The older sections below describe previous versions.
+
 ## Version 0.2 desktop recorder
 
 The desktop application now provides a live preview, rotation, native/9:16/16:9 center crop, a separate microphone selector, recording level meter, Start/Stop, playback and preview-time focus controls. The GUI and diagnostic `record` command use the same controller and recording implementation.

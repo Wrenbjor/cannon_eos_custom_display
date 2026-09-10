@@ -69,10 +69,12 @@ HRESULT SimpleFrameGenerator::_CreateRGB32Frame(
     _In_ ULONG rgbMask )
 {
     RETURN_HR_IF_NULL(E_INVALIDARG, pBuf);
-    if (len < (abs(pitch) * height ))
+    if (pitch < LONG(width * 4) || uint64_t(len) < (uint64_t(pitch) * height))
     {
         return HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
     }
+
+    if (!m_testPattern) { m_bridge.render(pBuf, pitch, width, height); return S_OK; }
 
     // Move at video cadence so the smoke test detects a frozen source.
     LONGLONG frame = MFGetSystemTime() / (MFTIME)333333;

@@ -1,5 +1,6 @@
 use crate::{
     audio::{self, Microphone},
+    bridge::{Publisher, VirtualCamera},
     eos::Session,
     frame::{Aspect, Frame},
     recording::Recording,
@@ -53,6 +54,7 @@ pub struct State {
     pub last_file: Option<PathBuf>,
     pub error: Option<String>,
     pub test_pattern: bool,
+    pub virtual_camera: bool,
 }
 pub enum Command {
     Connect,
@@ -61,6 +63,7 @@ pub enum Command {
     Stop,
     Focus(bool),
     Autofocus,
+    VirtualCamera(bool),
 }
 pub struct Controller {
     state: Arc<Mutex<State>>,
@@ -81,6 +84,7 @@ impl Controller {
             last_file: None,
             error: None,
             test_pattern,
+            virtual_camera: false,
         }));
         let (sender, receiver) = mpsc::sync_channel(16);
         let quit = Arc::new(AtomicBool::new(false));
@@ -240,6 +244,9 @@ fn capture_loop(
         s.start_live_view()?;
     }
     let mut recording: Option<Recording> = None;
+    // Keep the virtual-camera object alive before dropping its pipe publisher.
+    let mut publisher: Option<Publisher> = None;
+    let mut virtual_camera: Option<VirtualCamera> = None;
     let mut last: Option<Arc<Frame>> = None;
     let mut keep_awake = Instant::now();
     let mut fps_epoch = Instant::now();
@@ -250,7 +257,38 @@ fn capture_loop(
             for command in commands.try_iter() {
                 match command {
                     Command::Connect => {}
+                    Command::VirtualCamera(enabled) => {
+                        if enabled && virtual_camera.is_none() {
+                            let result = (|| -> Result<(Publisher, VirtualCamera)> {
+                                let mut publisher = Publisher::new()?;
+                                publisher.publish(last.as_deref())?;
+                                let camera = VirtualCamera::start(&publisher.name)?;
+                                Ok((publisher, camera))
+                            })();
+                            match result {
+                                Ok((p, c)) => {
+                                    publisher = Some(p);
+                                    virtual_camera = Some(c);
+                                    state.lock().unwrap().virtual_camera = true;
+                                }
+                                Err(e) => {
+                                    state.lock().unwrap().error =
+                                        Some(format!("Virtual camera: {e:#}"))
+                                }
+                            }
+                        } else if !enabled {
+                            if let Some(p) = &mut publisher {
+                                let _ = p.publish(None);
+                            }
+                            virtual_camera.take();
+                            publisher.take();
+                            state.lock().unwrap().virtual_camera = false;
+                        }
+                    }
                     Command::Configure(value) if recording.is_none() => {
+                        if let Some(p) = &mut publisher {
+                            p.publish(None)?;
+                        }
                         *settings = value;
                         last = None;
                     }
@@ -309,6 +347,9 @@ fn capture_loop(
                 (test_frame(sequence), Instant::now())
             };
             let frame = Arc::new(frame.rotate(settings.rotation)?.crop(settings.aspect)?);
+            if let Some(p) = &mut publisher {
+                p.publish(Some(&frame))?;
+            }
             let record_error = if let Some(active) = &mut recording {
                 active.push(frame.clone(), captured).err()
             } else {
@@ -344,6 +385,12 @@ fn capture_loop(
         }
         Ok(())
     })();
+    if let Some(p) = &mut publisher {
+        let _ = p.publish(None);
+    }
+    virtual_camera.take();
+    publisher.take();
+    state.lock().unwrap().virtual_camera = false;
     save_recording(&mut recording, state);
     let cleanup = session.as_mut().map(Session::stop).transpose();
     result?;

@@ -17,6 +17,13 @@ enum Command {
     Studio,
     /// List separate Windows microphone inputs.
     Microphones,
+    /// Verify the cross-process camera bridge without a physical camera or registration.
+    BridgeTest {
+        #[arg(long)]
+        reader: std::path::PathBuf,
+        #[arg(long)]
+        source: std::path::PathBuf,
+    },
     /// Record an MP4 using the same capture worker as the desktop application.
     Record {
         #[arg(long)]
@@ -175,6 +182,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     let com = wpd::Com::initialize()?;
     match cli.command {
+        Command::BridgeTest { reader, source } => eos_camera::bridge::self_test(&reader, &source)?,
         Command::Studio => {
             drop(com);
             return eos_camera::gui::run();

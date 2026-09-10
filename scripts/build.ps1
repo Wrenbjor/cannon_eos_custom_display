@@ -27,6 +27,8 @@ try {
         $ctestPath = Join-Path (Split-Path $cmakePath) 'ctest.exe'
         & $ctestPath --test-dir build/vcam -C Release --output-on-failure
         if ($LASTEXITCODE) { throw 'Virtual-camera streaming test failed' }
+        & ./target/release/eos-camera.exe bridge-test --reader ./build/vcam/Release/eos-vcam.exe --source ./build/vcam/Release/OpenEosCameraSource.dll
+        if ($LASTEXITCODE) { throw 'Cross-process camera bridge test failed' }
     }
     Write-Host 'Built target/release/{open-eos-studio.exe,eos-camera.exe} and build/vcam/Release/{eos-vcam.exe,OpenEosCameraSource.dll}'
 } finally { Pop-Location }

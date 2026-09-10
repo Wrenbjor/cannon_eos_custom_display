@@ -15,7 +15,7 @@ namespace winrt::WindowsSample::implementation
     HRESULT SimpleMediaStream::Initialize(
             _In_ SimpleMediaSource* pSource,
             _In_ DWORD dwStreamId,
-            _In_ MFSampleAllocatorUsage allocatorUsage
+            _In_ MFSampleAllocatorUsage allocatorUsage, IMFAttributes* attributes
         )
     {
         winrt::slim_lock_guard lock(m_Lock);
@@ -28,8 +28,14 @@ namespace winrt::WindowsSample::implementation
 
         m_dwStreamId = dwStreamId;
         m_allocatorUsage = allocatorUsage;
+        if (attributes) {
+            WCHAR pipe[128]{};
+            if (SUCCEEDED(attributes->GetString(OpenEosPipeAttribute, pipe, 128, nullptr))) m_pipeName = pipe;
+            UINT32 test = 0;
+            if (SUCCEEDED(attributes->GetUINT32(OpenEosTestAttribute, &test))) m_testPattern = test == 1;
+        }
 
-        const uint32_t NUM_MEDIATYPES = 4;
+        const uint32_t NUM_MEDIATYPES = 12;
         wil::unique_cotaskmem_array_ptr<wil::com_ptr_nothrow<IMFMediaType>> mediaTypeList = wilEx::make_unique_cotaskmem_array<wil::com_ptr_nothrow<IMFMediaType>>(NUM_MEDIATYPES);
 
         // Initialize media type and set the video output media type.
@@ -67,6 +73,17 @@ namespace winrt::WindowsSample::implementation
             RETURN_IF_FAILED(mediaTypeList[index]->CopyAllItems(spMediaType.get()));
             RETURN_IF_FAILED(MFSetAttributeSize(spMediaType.get(), MF_MT_FRAME_SIZE, NUM_IMAGE_ROWS, NUM_IMAGE_COLS));
             mediaTypeList[index + 2] = spMediaType.detach();
+        }
+
+        const UINT32 nativeSizes[4][2] = {{704,1056},{594,1056},{1056,704},{1056,594}};
+        for (uint32_t profile = 0; profile < 4; ++profile) {
+            for (uint32_t pixel = 0; pixel < 2; ++pixel) {
+                RETURN_IF_FAILED(MFCreateMediaType(&spMediaType));
+                RETURN_IF_FAILED(mediaTypeList[pixel]->CopyAllItems(spMediaType.get()));
+                RETURN_IF_FAILED(MFSetAttributeSize(spMediaType.get(), MF_MT_FRAME_SIZE, nativeSizes[profile][0], nativeSizes[profile][1]));
+                RETURN_IF_FAILED(spMediaType->SetUINT32(MF_MT_AVG_BITRATE, nativeSizes[profile][0] * nativeSizes[profile][1] * (pixel ? 32 : 12) * 30));
+                mediaTypeList[4 + profile * 2 + pixel] = spMediaType.detach();
+            }
         }
 
         RETURN_IF_FAILED(MFCreateAttributes(&m_spAttributes, 10));
@@ -455,6 +472,7 @@ namespace winrt::WindowsSample::implementation
                 RETURN_IF_NULL_ALLOC_MSG(m_spFrameGenerator, "Fail to create SimpleFrameGenerator");
             }
             RETURN_IF_FAILED(m_spFrameGenerator->Initialize(m_spMediaType.get()));
+            m_spFrameGenerator->Configure(m_pipeName, m_testPattern);
         }
 
         if (bSendEvent)

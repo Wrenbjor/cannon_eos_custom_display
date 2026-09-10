@@ -33,6 +33,9 @@ pub fn open_path(path: &Path) -> Result<()> {
     Ok(())
 }
 pub fn run() -> Result<()> {
+    run_with_virtual_camera(false)
+}
+pub fn run_with_virtual_camera(auto_camera: bool) -> Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1040.0, 820.0])
@@ -42,17 +45,20 @@ pub fn run() -> Result<()> {
     eframe::run_native(
         "Open EOS Studio",
         options,
-        Box::new(|cc| {
+        Box::new(move |cc| {
             cc.egui_ctx.set_visuals(egui::Visuals::dark());
             let mut style = (*cc.egui_ctx.style()).clone();
             style.spacing.item_spacing = egui::vec2(12.0, 10.0);
             cc.egui_ctx.set_style(style);
-            Ok(Box::new(Studio::new()))
+            let mut studio = Studio::new();
+            studio.auto_camera = auto_camera;
+            Ok(Box::new(studio))
         }),
     )
     .map_err(|e| anyhow::anyhow!("{e}"))
 }
 struct Studio {
+    auto_camera: bool,
     controller: Controller,
     settings: Settings,
     microphone: Microphone,
@@ -70,6 +76,7 @@ impl Studio {
             .and_then(|p| p.parent().map(|p| p.join("Recordings")))
             .unwrap_or_else(|| PathBuf::from("Recordings"));
         Self {
+            auto_camera: false,
             controller: Controller::new(false, settings),
             settings,
             microphone: Microphone::Default,
@@ -89,6 +96,10 @@ impl Studio {
 impl eframe::App for Studio {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let state = self.controller.snapshot();
+        if self.auto_camera && state.phase == Phase::Preview {
+            self.auto_camera = false;
+            self.send(Command::VirtualCamera(true));
+        }
         if ctx.input(|i| i.viewport().close_requested()) && state.phase != Phase::Closed {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.closing = true;
@@ -200,6 +211,13 @@ impl eframe::App for Studio {
                         ));
                     }
                     ui.small("The saved video uses this exact orientation and crop. No upscaling.");
+                    ui.separator();
+                    ui.heading("Use in OBS / other apps");
+                    if ui.add_enabled(state.frame.is_some() && !self.closing, egui::Button::new(if state.virtual_camera { "Stop virtual camera" } else { "Start virtual camera" })).clicked() {
+                        self.send(Command::VirtualCamera(!state.virtual_camera));
+                    }
+                    if state.virtual_camera { ui.colored_label(Color32::LIGHT_GREEN, "Open EOS Camera is available"); }
+                    ui.small("Keep Studio open. Select Open EOS Camera in the other app and choose your microphone there.");
                     ui.separator();
                     ui.heading("Microphone");
                     ui.add_enabled_ui(adjustable, |ui| {

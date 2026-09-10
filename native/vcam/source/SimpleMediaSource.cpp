@@ -35,7 +35,7 @@ namespace winrt::WindowsSample::implementation
         {
             auto ptr = winrt::make_self<SimpleMediaStream>();
             m_streamList[i] = ptr.detach();
-            RETURN_IF_FAILED(m_streamList[i]->Initialize(this, i, MFSampleAllocatorUsage_UsesCustomAllocator));
+            RETURN_IF_FAILED(m_streamList[i]->Initialize(this, i, MFSampleAllocatorUsage_UsesCustomAllocator, pAttributes));
 
             RETURN_IF_FAILED(m_streamList[i]->GetStreamDescriptor(&streamDescriptorList[i]));
         }

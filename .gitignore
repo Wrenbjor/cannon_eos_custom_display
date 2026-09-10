@@ -4,6 +4,8 @@
 /diagnostics/
 /Recordings/
 *.mp4
+*.mkv
+camera-install.log
 *.user
 *.suo
 .vs/

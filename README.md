@@ -2,7 +2,21 @@
 
 An open-source Windows utility for the Canon EOS 600D / Rebel T3i. The target is a standard selectable camera for Zoom, Google Meet, browsers, OBS, Windows Camera and other applications, with a companion interface for camera controls and original-photo capture.
 
-**Version 0.2 adds a desktop preview and local MP4 recording with a separate microphone.** The system-wide virtual camera still shows only an animated test pattern: the real USB feed is not connected to Zoom, Meet, browsers or OBS yet. No Canon SDK, Webcam Utility subscription, firmware modification, or replacement USB driver is required by the implemented camera path.
+**Version 0.3 connects the real USB camera to a Windows virtual camera. OBS 32.0.2 preview and recording have been verified.** Studio also provides local MP4 recording with a separate microphone. Zoom, Meet and browser compatibility still need individual tests. No Canon SDK, Webcam Utility subscription, firmware modification, or replacement USB driver is required.
+
+## Use the camera in OBS
+
+1. From a packaged build, run **Install virtual camera.cmd** once and accept the Windows administrator prompt. From source, run `./scripts/install-camera.ps1`. This registers the source DLL in a protected Program Files directory.
+2. Open **open-eos-studio.exe**, wait for live preview, set rotation/crop and click **Start virtual camera**. Keep Studio running. The `--virtual-camera` launch option starts sharing when preview becomes ready.
+3. In OBS, add a **Video Capture Device** source and choose **Open EOS Camera (Windows Virtual Camera)**.
+4. Set **Resolution/FPS Type → Custom**. Match Studio: full portrait **704 × 1056**, portrait 9:16 **594 × 1056**, full landscape **1056 × 704**, or landscape 16:9 **1056 × 594**. Use 30 fps for Windows output; this repeats the latest available USB frame, not 30 unique sensor frames per second.
+5. Under OBS Settings → Video, match the base canvas and output dimensions to the file shape you want. Select your separate microphone in OBS or add an Audio Input Capture source.
+
+Studio rotates the pixels before sharing, so no OBS source rotation is required. If OBS requests a different shape, the source fits the image with black borders rather than stretching it. 1280 × 720 and 720 × 1280 compatibility formats are also offered; they do not add camera detail. Matching native dimensions avoids resizing.
+
+Stop virtual camera removes the session device; closing Studio also stops it. On USB disconnect the last frame expires after one second, then the device is removed as camera cleanup completes. Reconnect the camera and start sharing again. Do not reinstall while camera clients use the DLL. To remove COM registration, close clients and run `./scripts/install-camera.ps1 -Unregister` (packaged script: `Install virtual camera.ps1`). Installed files remain for later removal.
+
+**Current limit:** a second DirectShow client requesting a different resolution while OBS used the camera returned an I/O error. Use one consuming application for now. Multiple pipe readers do not establish Windows client interoperability.
 
 ## Record a video
 
@@ -28,9 +42,9 @@ MP4 files contain H.264 video and optional AAC audio, using Windows encoders. Pr
 - Preview, center crop and record MP4 video in a desktop window, with a separate Windows microphone and a recording level meter.
 - Measure USB frame delivery with JPEG decoding and rotation included; Ctrl+C stops the benchmark and runs session cleanup.
 - Experimental one-shot lens-drive and autofocus commands. Command acceptance is not proof of optical movement or successful focus lock.
-- Build a native Windows camera source offering **1280 × 720** and **720 × 1280**, each in NV12 and RGB32. Automated tests activate the DLL and verify moving frames and timestamps in all four formats. These are synthetic output formats, not native sensor resolutions.
+- Share the transformed live feed as a Windows camera. Six resolutions are offered in NV12 and RGB32; automated tests exercise all twelve formats and the cross-process RGB transport and offline clearing.
 
-Still missing: USB frames in the virtual camera, full-resolution JPEG/CR2 capture/download, exposure controls, mode changes, persistent profiles, installer, and real application compatibility testing. See [the development plan](docs/development-plan.md) and [validation record](docs/hardware-validation.md).
+Still missing: full-resolution JPEG/CR2 capture/download, exposure controls, mode changes, persistent profiles, a signed production installer, reliable multi-application use, and remaining application compatibility tests. See [the development plan](docs/development-plan.md) and [validation record](docs/hardware-validation.md).
 
 ## Build on Windows 11 x64
 
@@ -75,9 +89,9 @@ Steps 1–3 are Canon's relative movement sizes, not distances. Autofocus runs f
 
 The app serializes its own camera access within the Windows user session. It cannot coordinate competing Canon or third-party applications. Disconnects produce errors. Normal cleanup restores only live-view properties this process changed; if USB is removed or the process is killed, switch the camera off/on to reset it. Individual WPD calls can block according to the Windows driver's timeout, even though application retries are bounded.
 
-## Test the Windows camera source
+## Optional synthetic source diagnostic
 
-The build runs the DLL streaming test without registering a device. To make the **animated test pattern** selectable in camera applications, a development registration script is included. Its elevated registration path has not yet been validated on the development machine; inspect it before use.
+The build runs the DLL streaming test without registering a device. To make the **animated test pattern** selectable, first register the DLL using the installer above. The separate controller explicitly enables a test-pattern attribute; the Studio feed never silently falls back to a pattern.
 
 From an Administrator PowerShell:
 
@@ -93,13 +107,13 @@ The script copies the camera DLL and controller to a protected directory under P
 
 Select **Open EOS Camera (test pattern)** in a camera app. Press Enter in the controller to stop/remove the session device. The test source has no microphone. To remove the COM registration, stop the controller and run `./scripts/register-test-camera.ps1 -Unregister` from Administrator PowerShell. The script leaves installed files in place for deliberate removal after all clients exit.
 
-**Zoom, Meet, browser, OBS and Windows Camera compatibility is unverified.** Passing a Media Foundation source-reader test does not establish that those clients can select or use the registered device. The next milestone must validate them individually.
+**OBS real-feed preview and recording are verified; Zoom, Meet, browser and Windows Camera compatibility remain unverified.** A source-reader test alone does not establish client compatibility.
 
 ## Next development slice
 
-1. Connect the Rust camera worker to the native camera source through versioned local IPC, with bounded frame storage, timestamps, explicit access controls and disconnect handling.
+1. Resolve simultaneous-consumer failures and validate Zoom, Meet, browsers and Windows Camera against the registered feed.
 2. Add persistent portrait/landscape profiles to the desktop preview and recorder.
-3. Register and test the real feed in the required application matrix; add a DirectShow adapter if actual client tests require it.
+3. Add a signed production installer and improve reconnect behavior.
 4. Add original-photo capture/download and verified exposure/focus controls. Preserve originals independently of preview transforms.
 
 ## License and provenance

@@ -1,4 +1,4 @@
-param([Parameter(Mandatory)][string]$Destination)
+param([Parameter(Mandatory)][string]$Destination, [switch]$SkipBuild)
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot -Parent
 Push-Location $repoRoot
@@ -8,14 +8,22 @@ try {
         throw 'Choose a new package destination; existing files will not be replaced.'
     }
     if (git status --porcelain) { throw 'Commit the source before packaging so source.zip matches the release.' }
-    & cargo build --release --locked
-    if ($LASTEXITCODE) { throw 'Release build failed' }
+    # SkipBuild packages an already validated build (for example, when its GUI
+    # remains open for a user's live test). It never bypasses source commit checks.
+    if (-not $SkipBuild) {
+        & cargo build --release --locked
+        if ($LASTEXITCODE) { throw 'Release build failed' }
+    }
     $metadata = & cargo metadata --locked --format-version 1 --filter-platform x86_64-pc-windows-msvc | ConvertFrom-Json
     if ($LASTEXITCODE) { throw 'Dependency metadata failed' }
     $commit = git rev-parse HEAD
     if ($LASTEXITCODE) { throw 'Cannot identify source revision' }
     New-Item -ItemType Directory -Path $destinationPath | Out-Null
     Copy-Item -LiteralPath 'target/release/open-eos-studio.exe','target/release/eos-camera.exe','LICENSE','README.md' -Destination $destinationPath
+    Copy-Item -LiteralPath 'build/vcam/Release/OpenEosCameraSource.dll','build/vcam/Release/eos-vcam.exe' -Destination $destinationPath
+    Copy-Item -LiteralPath 'scripts/register-test-camera.ps1' -Destination (Join-Path $destinationPath 'register-camera.ps1')
+    Copy-Item -LiteralPath 'scripts/install-camera.ps1' -Destination (Join-Path $destinationPath 'Install virtual camera.ps1')
+    [IO.File]::WriteAllText((Join-Path $destinationPath 'Install virtual camera.cmd'), '@echo off' + "`r`n" + 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0Install virtual camera.ps1"' + "`r`n" + 'pause' + "`r`n")
     Copy-Item -LiteralPath 'LICENSES' -Destination $destinationPath -Recurse
     Copy-Item -LiteralPath 'native/vcam/third_party/MICROSOFT-LICENSE.txt' -Destination (Join-Path $destinationPath 'LICENSES')
     Copy-Item -LiteralPath 'docs/hardware-validation.md' -Destination (Join-Path $destinationPath 'VALIDATION.md')
@@ -42,17 +50,27 @@ try {
     }
     [IO.File]::WriteAllText((Join-Path $destinationPath 'THIRD-PARTY-NOTICES.txt'), $notices.ToString())
     $startHere = @"
-# Open EOS Studio 0.2.0
+# Open EOS Studio 0.3.0
 
 Double-click open-eos-studio.exe. Connect and wake the Canon T3i / 600D.
 Choose rotation/crop, select your separate microphone, then Start recording.
 Stop and save finishes the MP4; Play last recording opens it in Windows.
 Recordings are saved in the Recordings folder beside the app unless changed.
 
-This is a desktop recorder. Sending the real camera to Zoom, Meet, browsers
-and OBS through the system-wide virtual camera remains the next milestone.
+To use in OBS or another camera app:
+1. Run Install virtual camera.cmd once and accept the Windows administrator prompt.
+2. Open Studio, wait for live preview, then click Start virtual camera.
+3. In OBS add a Video Capture Device and select Open EOS Camera (Windows Virtual Camera).
+4. Set Resolution/FPS Type to Custom and use 704x1056 for the full portrait image,
+   594x1056 for 9:16 portrait crop, 1056x704 for full landscape, or 1056x594 for 16:9.
+5. Set the OBS canvas/output dimensions to match if you want that file shape.
+6. Select your separate microphone in OBS. Keep Studio running.
+
+OBS 32.0.2 live preview and recording are verified. Zoom, Meet and browser
+compatibility still need individual tests. Rotation and crop come from Studio.
 USB live view is 1056 x 704, not native 1080p or full-resolution stills.
-No administrator access or Canon Webcam Utility is needed for recording.
+Administrator access is needed only for the one-time virtual-camera registration.
+No Canon Webcam Utility or replacement USB driver is needed.
 
 Source revision: $commit
 Repository: https://github.com/Wrenbjor/cannon_eos_custom_display

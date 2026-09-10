@@ -1,5 +1,5 @@
 # Development-only registration. Run in an Administrator PowerShell after building.
-param([switch]$Unregister)
+param([switch]$Unregister, [string]$BinaryDirectory)
 $ErrorActionPreference = 'Stop'
 $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -18,7 +18,7 @@ if ($Unregister) {
     exit
 }
 $repoRoot = Split-Path $PSScriptRoot -Parent
-$binaryDir = Join-Path $repoRoot 'build\vcam\Release'
+$binaryDir = if ($BinaryDirectory) { [IO.Path]::GetFullPath($BinaryDirectory) } else { Join-Path $repoRoot 'build\vcam\Release' }
 foreach ($file in @('OpenEosCameraSource.dll', 'eos-vcam.exe')) {
     if (-not (Test-Path -LiteralPath (Join-Path $binaryDir $file))) { throw 'Build the native camera first using scripts/build.ps1.' }
 }
@@ -45,5 +45,4 @@ New-Item -Path "$classKey\InprocServer32" -Force | Out-Null
 Set-Item -LiteralPath $classKey -Value 'Open EOS Camera development source'
 Set-Item -LiteralPath "$classKey\InprocServer32" -Value $installedDll
 New-ItemProperty -LiteralPath "$classKey\InprocServer32" -Name ThreadingModel -Value Both -PropertyType String -Force | Out-Null
-Write-Host "Registered the animated test source. In a normal terminal, run: & '$installDir\eos-vcam.exe' run"
-Write-Host 'This development source displays a TEST PATTERN; the USB camera feed is not connected to it yet.'
+Write-Host 'Registered Open EOS Camera. Open Studio and click Start virtual camera.'

@@ -5,6 +5,7 @@
 #pragma once
 #ifndef SIMPLE_FRAME_GENERATOR_H
 #define SIMPLE_FRAME_GENERATOR_H
+#include "FrameBridge.h"
 
 class SimpleFrameGenerator
 {
@@ -13,6 +14,7 @@ public:
     ~SimpleFrameGenerator() {};
 
     HRESULT Initialize(_In_ IMFMediaType* pMediaType);
+    void Configure(const std::wstring& pipe, bool test) { m_bridge.setPipe(pipe); m_testPattern = test; }
 
     HRESULT CreateFrame(
         _Inout_updates_bytes_(len) BYTE* pBuf,
@@ -39,6 +41,8 @@ private:
     UINT32 m_width = 0;
     UINT32 m_height = 0;
     GUID m_subType = GUID_NULL;
+    FrameBridge m_bridge;
+    bool m_testPattern = false;
 
 };
 

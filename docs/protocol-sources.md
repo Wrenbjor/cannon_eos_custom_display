@@ -24,6 +24,17 @@ The adapter links Windows system libraries and the SDK's C++/WinRT headers. WIL 
 
 ## Desktop preview and recording
 
+### Live virtual-camera bridge (version 0.3)
+
+`src/bridge.rs` publishes transformed RGB frames to four local-only named pipe instances. The endpoint has a fresh GUID for each session; its protected DACL allows only the producing user, SYSTEM and LOCAL SERVICE. Remote clients are rejected. Each response has a 40-byte little-endian header: magic EOS1, version, width, height, payload length, live flag, 64-bit sequence and 64-bit GetTickCount64 timestamp. Payloads are capped at 16 MiB, frames expire after one second, and an explicit zero-payload offline packet clears the feed. Client acknowledgement prevents disconnect from discarding unread bytes. All overlapped waits are bounded and cancelled before releasing their buffers.
+
+The native FrameBridge validates the endpoint namespace, protocol version, dimensions, byte count and freshness before rendering. No feed means black pixels. The pipe name is passed as an IMFVirtualCamera attribute and received on source activation. Registration uses the existing custom CLSID and a protected Program Files DLL; Studio uses CurrentUser access and Session lifetime. NV12 conversion is performed by the native adapter; RGB32 transport tests compare every RGB pixel. OBS consumes the result through the ordinary Windows virtual camera, without an OBS plugin or Canon driver wrapper.
+
+- [Microsoft IMFVirtualCamera](https://learn.microsoft.com/en-us/windows/win32/api/mfvirtualcamera/nn-mfvirtualcamera-imfvirtualcamera)
+- [Microsoft Frame Server custom media sources](https://learn.microsoft.com/en-us/windows-hardware/drivers/stream/frame-server-custom-media-source)
+- [OBS DirectShow capture implementation](https://github.com/obsproject/libdshowcapture)
+- [OBS launch parameters](https://obsproject.com/kb/launch-parameters) and [portable mode](https://obsproject.com/kb/portable-mode) were used for isolated client validation.
+
 - [eframe 0.33.3](https://docs.rs/eframe/0.33.3/eframe/) / egui provide the native desktop window and pixel preview (MIT OR Apache-2.0).
 - [CPAL 0.16.0](https://docs.rs/cpal/0.16.0/cpal/) captures the selected Windows microphone using WASAPI (Apache-2.0). Audio uses a bounded callback queue and sample-count timestamps anchored to the recording clock.
 - [Microsoft Sink Writer encoding tutorial](https://learn.microsoft.com/en-us/windows/win32/medfound/tutorial--using-the-sink-writer-to-encode-video) describes media types, samples and writer lifecycle.
