@@ -70,6 +70,71 @@ impl Frame {
         )?;
         Ok(data)
     }
+    pub fn crop(self, aspect: Aspect) -> Result<Self> {
+        let (w, h) = (u32::from(self.width), u32::from(self.height));
+        let (mut cw, mut ch) = match aspect {
+            Aspect::Native => (w, h),
+            Aspect::Landscape if w * 9 > h * 16 => (h * 16 / 9, h),
+            Aspect::Landscape => (w, w * 9 / 16),
+            Aspect::Portrait if w * 16 > h * 9 => (h * 9 / 16, h),
+            Aspect::Portrait => (w, w * 16 / 9),
+        };
+        cw &= !1;
+        ch &= !1;
+        ensure!(cw >= 2 && ch >= 2, "Frame is too small for video");
+        if cw == w && ch == h {
+            return Ok(self);
+        }
+        let (x, y) = ((w - cw) / 2, (h - ch) / 2);
+        let mut rgb = Vec::with_capacity((cw * ch * 3) as usize);
+        for row in y..y + ch {
+            let start = ((row * w + x) * 3) as usize;
+            rgb.extend_from_slice(&self.rgb[start..start + (cw * 3) as usize]);
+        }
+        Ok(Self {
+            width: cw as u16,
+            height: ch as u16,
+            rgb,
+        })
+    }
+    pub fn nv12(&self) -> Result<Vec<u8>> {
+        let (w, h) = (self.width as usize, self.height as usize);
+        ensure!(
+            w >= 2 && h >= 2 && w % 2 == 0 && h % 2 == 0 && self.rgb.len() == w * h * 3,
+            "NV12 needs an even-sized RGB frame"
+        );
+        let mut output = vec![0; w * h * 3 / 2];
+        for y in (0..h).step_by(2) {
+            for x in (0..w).step_by(2) {
+                let (mut u, mut v) = (0, 0);
+                for dy in 0..2 {
+                    for dx in 0..2 {
+                        let at = ((y + dy) * w + x + dx) * 3;
+                        let r = i32::from(self.rgb[at]);
+                        let g = i32::from(self.rgb[at + 1]);
+                        let b = i32::from(self.rgb[at + 2]);
+                        // Limited-range BT.709. Average chroma across the whole 2x2 block.
+                        output[(y + dy) * w + x + dx] =
+                            (((47 * r + 157 * g + 16 * b + 128) >> 8) + 16).clamp(16, 235) as u8;
+                        u += -26 * r - 87 * g + 113 * b;
+                        v += 112 * r - 102 * g - 10 * b;
+                    }
+                }
+                let uv = w * h + y / 2 * w + x;
+                output[uv] = (((u + 512) >> 10) + 128).clamp(16, 240) as u8;
+                output[uv + 1] = (((v + 512) >> 10) + 128).clamp(16, 240) as u8;
+            }
+        }
+        Ok(output)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Aspect {
+    #[default]
+    Native,
+    Portrait,
+    Landscape,
 }
 
 #[cfg(test)]
@@ -115,5 +180,29 @@ mod tests {
     fn rejects_corrupt_jpeg_and_invalid_rotation() {
         assert!(Frame::decode(&[0xff, 0xd8, 0xff, 0xd9]).is_err());
         assert!(labelled().rotate(45).is_err());
+    }
+    #[test]
+    fn nv12_has_limited_range_neutral_black_and_white() {
+        for (rgb, y) in [(0, 16), (255, 235)] {
+            let f = Frame {
+                width: 2,
+                height: 2,
+                rgb: vec![rgb; 12],
+            };
+            assert_eq!(f.nv12().unwrap(), [y, y, y, y, 128, 128]);
+        }
+        assert!(labelled().nv12().is_err());
+    }
+    #[test]
+    fn crop_preserves_pixels_and_produces_even_video_dimensions() {
+        let f = Frame {
+            width: 8,
+            height: 4,
+            rgb: (0..32).flat_map(|v| [v; 3]).collect(),
+        }
+        .crop(Aspect::Portrait)
+        .unwrap();
+        assert_eq!((f.width, f.height), (2, 4));
+        assert_eq!(labels(&f), [3, 4, 11, 12, 19, 20, 27, 28]);
     }
 }

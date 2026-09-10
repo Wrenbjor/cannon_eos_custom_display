@@ -1,5 +1,26 @@
 # Initial validation — September 10, 2026
 
+## Version 0.2 desktop recorder
+
+The desktop application now provides a live preview, rotation, native/9:16/16:9 center crop, a separate microphone selector, recording level meter, Start/Stop, playback and preview-time focus controls. The GUI and diagnostic `record` command use the same controller and recording implementation.
+
+On the same Windows 11 development machine, an optimized build recorded the actual T3i USB feed with a separate Yeti microphone:
+
+| Saved media check | Observed result |
+|---|---|
+| Portrait video | H.264, 594 × 1056; actual pixels rotated 90° and center-cropped to 9:16 |
+| Video duration / decoded frames | 12.133667 seconds / 220 frames, approximately 18.13 delivered fps |
+| Separate microphone | AAC, stereo, 48,000 Hz; audio samples were nonzero |
+| Audio timeline | Starts at 0.008167 seconds, duration 12.117333 seconds; end within 9 ms of video end |
+| Whole-file decode | FFmpeg decoded both streams without errors using original timestamp precision |
+| Earlier short generated-pattern + real-microphone test | Both streams decoded; video timestamps strictly increasing |
+
+These results establish valid local A/V recording, not perceptual lip-sync, sustained long-session performance, or independent hardware-clock drift correction. The camera image in the first clip was visibly out of focus; optical autofocus success remains unverified. Debug builds were substantially slower; use the optimized release executable for recording. Personal test media is kept outside Git and release archives.
+
+Automated tests also encode generated H.264/AAC media, verify finalized MP4 tracks, refuse overwriting an existing recording, preserve crop pixels, reject changing framing during recording, and finish a second recording when the controller closes. There are 15 Rust tests. Manual USB unplug during recording, microphone removal, low-disk handling and a long A/V clap-sync run remain untested. The GUI has not been driven by an automated native UI test.
+
+This release does **not** connect the real USB feed to the system-wide virtual camera. The application matrix below remains open.
+
 Development baseline: Windows 11 Home x64, build 26200; AMD Ryzen 7 5700G; physical Canon EOS Rebel T3i, USB VID 04A9 / PID 3218. USB serial and owner fields are deliberately omitted. Firmware version, lens model and power configuration have not yet been recorded.
 
 ## Observed on the real camera

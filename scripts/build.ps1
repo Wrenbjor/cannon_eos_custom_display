@@ -28,5 +28,5 @@ try {
         & $ctestPath --test-dir build/vcam -C Release --output-on-failure
         if ($LASTEXITCODE) { throw 'Virtual-camera streaming test failed' }
     }
-    Write-Host 'Built target/release/eos-camera.exe and build/vcam/Release/{eos-vcam.exe,OpenEosCameraSource.dll}'
+    Write-Host 'Built target/release/{open-eos-studio.exe,eos-camera.exe} and build/vcam/Release/{eos-vcam.exe,OpenEosCameraSource.dll}'
 } finally { Pop-Location }

@@ -22,6 +22,16 @@ Local changes: a distinct COM class ID and name; a custom sample allocator usabl
 
 The adapter links Windows system libraries and the SDK's C++/WinRT headers. WIL 1.0.260126.7 is retrieved from NuGet with its SHA-256 pinned in CMakeLists.txt; its license and bundled third-party notices are in LICENSES. Rust package versions are pinned by Cargo.lock; each dependency retains its upstream license.
 
+## Desktop preview and recording
+
+- [eframe 0.33.3](https://docs.rs/eframe/0.33.3/eframe/) / egui provide the native desktop window and pixel preview (MIT OR Apache-2.0).
+- [CPAL 0.16.0](https://docs.rs/cpal/0.16.0/cpal/) captures the selected Windows microphone using WASAPI (Apache-2.0). Audio uses a bounded callback queue and sample-count timestamps anchored to the recording clock.
+- [Microsoft Sink Writer encoding tutorial](https://learn.microsoft.com/en-us/windows/win32/medfound/tutorial--using-the-sink-writer-to-encode-video) describes media types, samples and writer lifecycle.
+- [Sink Writer Finalize](https://learn.microsoft.com/en-us/windows/win32/api/mfreadwrite/nf-mfreadwrite-imfsinkwriter-finalize) completes pending output and MP4 headers. The application waits for completion before publishing the final filename.
+- [Microsoft AAC encoder](https://learn.microsoft.com/en-us/windows/win32/medfound/aac-encoder) defines supported PCM input and AAC output formats.
+
+Video converts RGB to BT.709 limited-range NV12 and tags the encoded stream accordingly. Rotation and center cropping happen before both preview and encoding. MP4 uses actual capture timestamps rather than assuming the camera delivered 30 frames per second. A separate microphone has an independent hardware clock; long-session drift correction and a manual audio-delay control remain future work. No FFmpeg executable is needed by the app; FFmpeg is used only for development validation of saved files. Cargo.lock pins the dependency graph; third-party notices accompany packaged builds.
+
 ## Resolution facts
 
 - [Canon 600D specifications](https://asia.canon/en/support/6200098100): original still-photo resolution is distinct from USB live view and camera-side movie recording.

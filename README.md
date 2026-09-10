@@ -1,8 +1,23 @@
-# Open EOS Camera
+# Open EOS Studio / Open EOS Camera
 
 An open-source Windows utility for the Canon EOS 600D / Rebel T3i. The target is a standard selectable camera for Zoom, Google Meet, browsers, OBS, Windows Camera and other applications, with a companion interface for camera controls and original-photo capture.
 
-**Development prototype — not yet a usable replacement webcam.** Two independent paths work: direct USB live-view acquisition and a Windows Media Foundation camera source with an animated test pattern. They are not connected yet. No Canon SDK, Webcam Utility subscription, firmware modification, or replacement USB driver is required by the implemented camera path.
+**Version 0.2 adds a desktop preview and local MP4 recording with a separate microphone.** The system-wide virtual camera still shows only an animated test pattern: the real USB feed is not connected to Zoom, Meet, browsers or OBS yet. No Canon SDK, Webcam Utility subscription, firmware modification, or replacement USB driver is required by the implemented camera path.
+
+## Record a video
+
+Launch **open-eos-studio.exe** from an extracted build, or `target/release/open-eos-studio.exe` after building. This is a normal desktop application; it does not need administrator rights or camera registration.
+
+1. Connect the T3i by USB and switch it on. Stop conflicting camera clients. If it was asleep or disconnected, use **Reconnect camera**.
+2. Choose rotation and crop while watching the live preview. Full camera image preserves the available USB image; Portrait 9:16 and Landscape 16:9 crop the center without stretching or upscaling.
+3. Select your separate microphone, Windows default, or No audio. Microphones must currently use a 44.1 or 48 kHz mono/stereo Windows format. Plug in microphones before launching the app.
+4. Choose the save folder and click **Start recording**. The microphone meter runs during recording. Click **Stop and save**, then **Play last recording**.
+
+Recordings default to a `Recordings` folder beside the executable. Framing and microphone choices are locked during a recording. Closing the window finishes an active recording before exiting; a camera disconnect also attempts to finish the file. Do not force-kill the app while it is saving. Windows driver calls can delay cleanup.
+
+MP4 files contain H.264 video and optional AAC audio, using Windows encoders. Preview and saved video use the same transformed pixels. Actual frame timestamps preserve elapsed time when USB delivery varies. Files are never overwritten. An interrupted or failed recording may remain as `*.recording.mp4`; that name means successful completion was not confirmed. Settings are not yet persisted between launches.
+
+**Resolution:** this T3i supplies 1056 × 704 USB preview pixels, or 704 × 1056 after a quarter turn. A rotated 9:16 center crop is 594 × 1056; a landscape 16:9 crop is 1056 × 594. These are live-view recordings, not native 1080p sensor video or full-resolution still photos.
 
 ## What works now
 
@@ -10,11 +25,12 @@ An open-source Windows utility for the Canon EOS 600D / Rebel T3i. The target is
 - Read advertised Canon commands and selected camera properties without printing owner names or USB serial numbers.
 - Retrieve native live-view JPEG frames. The development camera returned **1056 × 704**.
 - Rotate the actual pixels by 0°, 90°, 180° or 270°. A quarter turn produces **704 × 1056** output; it does not rely on EXIF/display rotation.
+- Preview, center crop and record MP4 video in a desktop window, with a separate Windows microphone and a recording level meter.
 - Measure USB frame delivery with JPEG decoding and rotation included; Ctrl+C stops the benchmark and runs session cleanup.
 - Experimental one-shot lens-drive and autofocus commands. Command acceptance is not proof of optical movement or successful focus lock.
 - Build a native Windows camera source offering **1280 × 720** and **720 × 1280**, each in NV12 and RGB32. Automated tests activate the DLL and verify moving frames and timestamps in all four formats. These are synthetic output formats, not native sensor resolutions.
 
-Still missing: USB frames in the virtual camera, desktop controls, full-resolution JPEG/CR2 capture/download, exposure controls, mode changes, local recording, installer, and real application compatibility testing. See [the development plan](docs/development-plan.md) and [validation record](docs/hardware-validation.md).
+Still missing: USB frames in the virtual camera, full-resolution JPEG/CR2 capture/download, exposure controls, mode changes, persistent profiles, installer, and real application compatibility testing. See [the development plan](docs/development-plan.md) and [validation record](docs/hardware-validation.md).
 
 ## Build on Windows 11 x64
 
@@ -26,7 +42,7 @@ cd cannon_eos_custom_display
 ./scripts/build.ps1
 ```
 
-The build script compiles both components and runs formatting, lint, Rust unit tests and native streaming tests. Tests do not trigger the camera or require camera registration. The `.github/workflows/windows.yml` workflow runs these checks on a Windows runner.
+The build script compiles the GUI, diagnostic CLI and native camera source, then runs formatting, lint, Rust tests (including Windows MP4 encoding and controller shutdown) and native streaming tests. Tests use generated frames/audio and temporary files; they do not capture a microphone, trigger the camera or require camera registration. The `.github/workflows/windows.yml` workflow runs these checks on a Windows runner.
 
 ## Use the camera diagnostic application
 
@@ -39,7 +55,11 @@ Connect the T3i by USB, switch it on and keep it awake. Close camera clients. Ca
 ./target/release/eos-camera.exe preview --output captures/landscape.jpg
 ./target/release/eos-camera.exe preview --rotate 90 --output captures/portrait.jpg
 ./target/release/eos-camera.exe benchmark --frames 120 --rotate 90
+./target/release/eos-camera.exe microphones
+./target/release/eos-camera.exe record --seconds 10 --rotate 90 --crop portrait --microphone default --output captures/test.mp4
 ```
+
+`record` uses the same capture/recording worker as the GUI. `--microphone` also accepts `off` or an exact quoted input name. `--test-pattern` substitutes generated moving pixels for the camera, useful for recording tests; it still captures the selected microphone unless `--microphone off` is specified. Ctrl+C requests a clean stop.
 
 Saved previews are live-view images, **not full-resolution still photos**. Non-rotated previews preserve the original USB JPEG bytes; rotated previews are decoded and re-encoded at JPEG quality 95. Output files are never overwritten. Images and build output are ignored by Git.
 
@@ -78,7 +98,7 @@ Select **Open EOS Camera (test pattern)** in a camera app. Press Enter in the co
 ## Next development slice
 
 1. Connect the Rust camera worker to the native camera source through versioned local IPC, with bounded frame storage, timestamps, explicit access controls and disconnect handling.
-2. Add a desktop preview with clockwise/counterclockwise rotation, fit/crop, and persistent portrait/landscape profiles.
+2. Add persistent portrait/landscape profiles to the desktop preview and recorder.
 3. Register and test the real feed in the required application matrix; add a DirectShow adapter if actual client tests require it.
 4. Add original-photo capture/download and verified exposure/focus controls. Preserve originals independently of preview transforms.
 

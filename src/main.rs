@@ -1,7 +1,4 @@
-mod eos;
-mod frame;
-mod protocol;
-mod wpd;
+use eos_camera::{audio, eos, frame, studio, wpd};
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -16,6 +13,27 @@ struct Cli {
 enum Command {
     /// List cameras without exposing USB serial numbers.
     List,
+    /// Open the desktop preview and recording window.
+    Studio,
+    /// List separate Windows microphone inputs.
+    Microphones,
+    /// Record an MP4 using the same capture worker as the desktop application.
+    Record {
+        #[arg(long)]
+        output: std::path::PathBuf,
+        #[arg(long, default_value_t = 10, value_parser = clap::value_parser!(u32).range(1..=86400))]
+        seconds: u32,
+        #[arg(long, default_value = "90", value_parser = rotation)]
+        rotate: u16,
+        #[arg(long, value_enum, default_value = "native")]
+        crop: Crop,
+        /// Use default, off, or the exact microphone name from `microphones`.
+        #[arg(long, default_value = "default")]
+        microphone: String,
+        /// Generated moving pattern for testing the recorder without a camera.
+        #[arg(long)]
+        test_pattern: bool,
+    },
     /// Read the camera's supported vendor commands; does not change settings.
     Probe,
     /// Read selected settings through Canon's remote session.
@@ -49,6 +67,101 @@ enum Direction {
     Near,
     Far,
 }
+#[derive(Clone, clap::ValueEnum)]
+enum Crop {
+    Native,
+    Portrait,
+    Landscape,
+}
+
+fn record(
+    output: std::path::PathBuf,
+    seconds: u32,
+    rotate: u16,
+    crop: Crop,
+    microphone: String,
+    test_pattern: bool,
+) -> Result<()> {
+    use std::{
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+        time::{Duration, Instant},
+    };
+    use studio::{Command, Controller, Phase, Settings};
+    let running = Arc::new(AtomicBool::new(true));
+    let signal = running.clone();
+    ctrlc::set_handler(move || signal.store(false, Ordering::Relaxed))?;
+    let settings = Settings {
+        rotation: rotate,
+        aspect: match crop {
+            Crop::Native => frame::Aspect::Native,
+            Crop::Portrait => frame::Aspect::Portrait,
+            Crop::Landscape => frame::Aspect::Landscape,
+        },
+    };
+    let microphone = match microphone.as_str() {
+        "off" => audio::Microphone::Off,
+        "default" => audio::Microphone::Default,
+        _ => audio::Microphone::Named(microphone),
+    };
+    let controller = Controller::new(test_pattern, settings);
+    let result = (|| -> Result<()> {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let state = controller.snapshot();
+            if let Some(error) = state.error {
+                anyhow::bail!("{error}");
+            }
+            if state.phase == Phase::Preview {
+                break;
+            }
+            anyhow::ensure!(running.load(Ordering::Relaxed), "Cancelled");
+            anyhow::ensure!(
+                Instant::now() < deadline,
+                "Timed out waiting for live preview"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        controller.send(Command::Start(output, microphone))?;
+        let mut stop_sent = false;
+        let deadline = Instant::now() + Duration::from_secs(u64::from(seconds) + 60);
+        loop {
+            let state = controller.snapshot();
+            if let Some(error) = state.error {
+                anyhow::bail!("{error}");
+            }
+            if let Some(path) = state.last_file {
+                println!("Saved {}", path.display());
+                return Ok(());
+            }
+            if state.phase == Phase::Recording
+                && !stop_sent
+                && (state.elapsed >= f64::from(seconds) || !running.load(Ordering::Relaxed))
+            {
+                controller.send(Command::Stop)?;
+                stop_sent = true;
+            }
+            anyhow::ensure!(
+                Instant::now() < deadline,
+                "Timed out waiting for the recorder"
+            );
+            std::thread::sleep(Duration::from_millis(30));
+        }
+    })();
+    controller.shutdown();
+    // Allow camera cleanup and MP4 finalization even after an error or Ctrl+C.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while controller.snapshot().phase != Phase::Closed && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    anyhow::ensure!(
+        controller.snapshot().phase == Phase::Closed,
+        "Camera cleanup is still blocked by Windows; the unfinished recording may need recovery"
+    );
+    result
+}
 fn rotation(value: &str) -> Result<u16, String> {
     match value {
         "0" => Ok(0),
@@ -62,6 +175,19 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     let com = wpd::Com::initialize()?;
     match cli.command {
+        Command::Studio => {
+            drop(com);
+            return eos_camera::gui::run();
+        }
+        Command::Microphones => println!("{}", serde_json::to_string_pretty(&audio::inputs()?)?),
+        Command::Record {
+            output,
+            seconds,
+            rotate,
+            crop,
+            microphone,
+            test_pattern,
+        } => record(output, seconds, rotate, crop, microphone, test_pattern)?,
         Command::List => println!("{}", serde_json::to_string_pretty(&wpd::devices(&com)?)?),
         Command::Probe => {
             let camera = wpd::Camera::open(&com)?;
