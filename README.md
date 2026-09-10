@@ -18,7 +18,7 @@ Still missing: USB frames in the virtual camera, desktop controls, full-resoluti
 
 ## Build on Windows 11 x64
 
-Install Rust via rustup and Visual Studio 2022 Build Tools with **Desktop development with C++**, CMake, and a Windows 11 SDK (22621 or newer). The toolchain is pinned to Rust 1.94.1; Cargo.lock pins Rust dependencies. The native build downloads a SHA-256-pinned WIL package and uses the SDK's C++/WinRT headers.
+Install Rust via rustup and Visual Studio 2022 Build Tools or newer with **Desktop development with C++**, CMake, and a Windows 11 SDK (22621 or newer). The toolchain is pinned to Rust 1.94.1; Cargo.lock pins Rust dependencies. The native build uses C++20, downloads a SHA-256-pinned WIL package, and uses the SDK's C++/WinRT headers.
 
 ```powershell
 git clone git@github.com:Wrenbjor/cannon_eos_custom_display.git

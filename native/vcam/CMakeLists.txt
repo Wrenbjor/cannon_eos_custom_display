@@ -3,7 +3,7 @@ project(OpenEosVirtualCamera LANGUAGES CXX)
 if(NOT WIN32 OR NOT MSVC)
   message(FATAL_ERROR "This prototype requires Windows 11 and Microsoft C++ Build Tools")
 endif()
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include(FetchContent)
 FetchContent_Declare(wil

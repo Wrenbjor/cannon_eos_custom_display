@@ -15,7 +15,7 @@ Development baseline: Windows 11 Home x64, build 26200; AMD Ryzen 7 5700G; physi
 | Save and inspect a rotated real-camera JPEG | Passed: upright 704 × 1056 image, independent of rotation metadata |
 | Optimized 120-frame benchmark, decoding + rotation included | Passed: 6.1564 seconds, approximately 19.49 delivered fps |
 | Distinct payloads during that benchmark | 120 of 120 JPEG payloads differed; this is not a sensor-fps or motion-estimation measurement |
-| Near-focus step 1 | Camera accepted the command; optical movement/accuracy not measured |
+| Near-focus step 1 and far-focus step 1 | Camera accepted both commands; optical movement/accuracy not measured |
 | Autofocus lock | Not tested; implementation does not yet parse focus-lock events |
 | Remote shutter / original JPEG / CR2 transfer | Not implemented |
 
@@ -48,5 +48,7 @@ This is **an in-process synthetic camera-source test**. It does not test device 
 Rust tests cover truncated/oversized Canon records, invalid terminators, trailing corruption after a JPEG, non-JPEG payload rejection, exact pixel rotation, four-turn identity, invalid angles, JPEG decode failure and encoded portrait dimensions. The build script also runs rustfmt and Clippy with warnings denied.
 
 No hardware-dependent command runs in CI. Native streaming tests have a 30-second process timeout. The Windows build workflow is included; local success does not imply a hosted workflow has run successfully.
+
+The first hosted run compiled the Rust executable but exposed C++/WinRT's deprecated experimental-coroutine path under Visual Studio 2026. The native target was changed to C++20 to use standard coroutines, and local native streaming tests were rerun. The checkout action was also updated from its deprecated runtime version.
 
 Milestone 0 remains **partially complete**: USB acquisition and synthetic source streaming are proven, while original-photo transfer, registration and application compatibility acceptance tests remain open.
