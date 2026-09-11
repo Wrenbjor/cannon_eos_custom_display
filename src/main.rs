@@ -30,7 +30,7 @@ enum Command {
         output: std::path::PathBuf,
         #[arg(long, default_value_t = 10, value_parser = clap::value_parser!(u32).range(1..=86400))]
         seconds: u32,
-        #[arg(long, default_value = "90", value_parser = rotation)]
+        #[arg(long, default_value = "0", value_parser = rotation)]
         rotate: u16,
         #[arg(long, value_enum, default_value = "native")]
         crop: Crop,
@@ -40,6 +40,9 @@ enum Command {
         /// Generated moving pattern for testing the recorder without a camera.
         #[arg(long)]
         test_pattern: bool,
+        /// Upscale output to 1080 pixels on the short edge (no extra sensor detail).
+        #[arg(long)]
+        full_hd: bool,
     },
     /// Read the camera's supported vendor commands; does not change settings.
     Probe,
@@ -88,6 +91,7 @@ fn record(
     crop: Crop,
     microphone: String,
     test_pattern: bool,
+    full_hd: bool,
 ) -> Result<()> {
     use std::{
         sync::{
@@ -101,6 +105,7 @@ fn record(
     let signal = running.clone();
     ctrlc::set_handler(move || signal.store(false, Ordering::Relaxed))?;
     let settings = Settings {
+        full_hd,
         rotation: rotate,
         aspect: match crop {
             Crop::Native => frame::Aspect::Native,
@@ -195,7 +200,16 @@ fn main() -> Result<()> {
             crop,
             microphone,
             test_pattern,
-        } => record(output, seconds, rotate, crop, microphone, test_pattern)?,
+            full_hd,
+        } => record(
+            output,
+            seconds,
+            rotate,
+            crop,
+            microphone,
+            test_pattern,
+            full_hd,
+        )?,
         Command::List => println!("{}", serde_json::to_string_pretty(&wpd::devices(&com)?)?),
         Command::Probe => {
             let camera = wpd::Camera::open(&com)?;
@@ -286,6 +300,7 @@ fn main() -> Result<()> {
                 received += 1;
             }
             let elapsed = start.elapsed().as_secs_f64();
+            let camera_status = session.status();
             session.stop()?;
             println!(
                 "{}",
@@ -293,7 +308,8 @@ fn main() -> Result<()> {
                     "frames": received, "changed_jpeg_payloads": changed, "seconds": elapsed,
                     "delivered_fps_including_decode_and_rotation": received as f64 / elapsed,
                     "output_width": width, "output_height": height, "rotation_clockwise": rotate,
-                    "interrupted": !running.load(Ordering::Relaxed), "images_saved": false
+                    "interrupted": !running.load(Ordering::Relaxed), "images_saved": false,
+                    "camera_status": camera_status
                 }))?
             );
         }
@@ -304,8 +320,11 @@ fn main() -> Result<()> {
             let _ = session.frame()?;
             match cli.command {
                 Command::Autofocus => {
-                    session.autofocus()?;
-                    println!("Autofocus request completed; focus lock has not been verified.");
+                    let frames = session.autofocus()?;
+                    println!(
+                        "Autofocus request completed; {frames} live frames retrieved. Focus lock has not been verified."
+                    );
+                    println!("{}", serde_json::to_string_pretty(&session.status())?);
                 }
                 Command::Focus { direction, step } => {
                     session.focus_step(matches!(direction, Direction::Far), step)?;

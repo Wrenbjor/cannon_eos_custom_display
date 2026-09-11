@@ -53,7 +53,7 @@ cargo --version
 ./scripts/build.ps1
 ```
 
-The script builds optimized Rust binaries and the native C++ source, then runs rustfmt, Clippy with warnings denied, Rust unit/encoder tests, twelve native streaming formats and a Rust-to-native pipe test. A successful final line lists the generated binaries. Tests use generated media, require no camera or microphone, and do not register a camera device.
+The script builds optimized Rust binaries and the native C++ source, then runs rustfmt, Clippy with warnings denied, Rust unit/encoder tests, sixteen native streaming formats and a Rust-to-native pipe test (including both 1080 shapes). A successful final line lists the generated binaries. Tests use generated media, require no camera or microphone, and do not register a camera device.
 
 If your execution policy blocks a reviewed checkout's scripts, run this process-scoped command rather than changing the machine-wide policy:
 

@@ -4,8 +4,8 @@
 
 #include "pch.h"
 
-#define NUM_IMAGE_ROWS 720
-#define NUM_IMAGE_COLS 1280
+#define NUM_IMAGE_ROWS 1080
+#define NUM_IMAGE_COLS 1920
 #define BYTES_PER_PIXEL 4
 #define IMAGE_BUFFER_SIZE_BYTES (NUM_IMAGE_ROWS * NUM_IMAGE_COLS * BYTES_PER_PIXEL)
 #define IMAGE_ROW_SIZE_BYTES (NUM_IMAGE_COLS * BYTES_PER_PIXEL)
@@ -35,7 +35,7 @@ namespace winrt::WindowsSample::implementation
             if (SUCCEEDED(attributes->GetUINT32(OpenEosTestAttribute, &test))) m_testPattern = test == 1;
         }
 
-        const uint32_t NUM_MEDIATYPES = 12;
+        const uint32_t NUM_MEDIATYPES = 16;
         wil::unique_cotaskmem_array_ptr<wil::com_ptr_nothrow<IMFMediaType>> mediaTypeList = wilEx::make_unique_cotaskmem_array<wil::com_ptr_nothrow<IMFMediaType>>(NUM_MEDIATYPES);
 
         // Initialize media type and set the video output media type.
@@ -75,8 +75,8 @@ namespace winrt::WindowsSample::implementation
             mediaTypeList[index + 2] = spMediaType.detach();
         }
 
-        const UINT32 nativeSizes[4][2] = {{704,1056},{594,1056},{1056,704},{1056,594}};
-        for (uint32_t profile = 0; profile < 4; ++profile) {
+        const UINT32 nativeSizes[6][2] = {{704,1056},{594,1056},{1056,704},{1056,594},{1280,720},{720,1280}};
+        for (uint32_t profile = 0; profile < 6; ++profile) {
             for (uint32_t pixel = 0; pixel < 2; ++pixel) {
                 RETURN_IF_FAILED(MFCreateMediaType(&spMediaType));
                 RETURN_IF_FAILED(mediaTypeList[pixel]->CopyAllItems(spMediaType.get()));

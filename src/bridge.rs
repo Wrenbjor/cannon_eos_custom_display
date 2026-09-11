@@ -21,13 +21,21 @@ use windows::{
 pub const PIPE_ATTRIBUTE: GUID = GUID::from_u128(0x921f5ac1_3d6b_4ff6_8e31_2356a63aa113);
 pub fn self_test(reader: &std::path::Path, source: &std::path::Path) -> Result<()> {
     let mut publisher = Publisher::new()?;
-    let frame = Frame {
-        width: 64,
-        height: 96,
-        rgb: [12, 34, 56].repeat(64 * 96),
-    };
-    for mode in ["live", "offline"] {
-        publisher.publish(if mode == "live" { Some(&frame) } else { None })?;
+    for (mode, width, height) in [
+        ("live", 64, 96),
+        ("offline", 64, 96),
+        ("live-landscape", 1920, 1080),
+        ("offline-landscape", 1920, 1080),
+        ("live-portrait", 1080, 1920),
+        ("offline-portrait", 1080, 1920),
+    ] {
+        let frame = Frame {
+            width,
+            height,
+            rgb: [12, 34, 56].repeat(usize::from(width) * usize::from(height)),
+        };
+        let live = mode.starts_with("live");
+        publisher.publish(if live { Some(&frame) } else { None })?;
         let mut child = std::process::Command::new(reader)
             .arg("bridge-test")
             .arg(std::path::absolute(source)?)
@@ -46,7 +54,7 @@ pub fn self_test(reader: &std::path::Path, source: &std::path::Path) -> Result<(
                 anyhow::bail!("Native bridge verification timed out");
             }
             // Refresh the producer heartbeat while the child initializes MF.
-            publisher.publish(if mode == "live" { Some(&frame) } else { None })?;
+            publisher.publish(if live { Some(&frame) } else { None })?;
             std::thread::sleep(std::time::Duration::from_millis(30));
         }
     }

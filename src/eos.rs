@@ -32,6 +32,8 @@ pub struct Session<'a, 'c> {
     properties: BTreeMap<u32, Vec<u8>>,
     original_output: Option<u32>,
     original_mode: Option<u32>,
+    focus_updated: Option<Instant>,
+    autofocus_until: Option<Instant>,
 }
 impl<'a, 'c> Session<'a, 'c> {
     pub fn start(camera: &'a Camera<'c>) -> Result<Self> {
@@ -41,6 +43,8 @@ impl<'a, 'c> Session<'a, 'c> {
             properties: BTreeMap::new(),
             original_output: None,
             original_mode: None,
+            focus_updated: None,
+            autofocus_until: None,
         };
         retry(|| camera.no_data(0x9115, &[1])).context("Enabling Canon events")?;
         s.poll()?;
@@ -64,6 +68,9 @@ impl<'a, 'c> Session<'a, 'c> {
             if kind == 0xc189 {
                 let code = protocol::word(body, 0)?;
                 self.properties.insert(code, body[4..].to_vec());
+                if code == 0xd1d3 {
+                    self.focus_updated = Some(Instant::now());
+                }
             }
         }
         Ok(())
@@ -99,6 +106,8 @@ impl<'a, 'c> Session<'a, 'c> {
             ("battery_code", 0xd111),
             ("evf_output", 0xd1b0),
             ("evf_mode", 0xd1b1),
+            ("live_view_af_system", 0xd1ba),
+            ("lens_status", 0xd1a8),
         ];
         let mut report = serde_json::Map::new();
         for (name, code) in fields {
@@ -108,7 +117,25 @@ impl<'a, 'c> Session<'a, 'c> {
                 report.insert(name.into(), serde_json::json!({"bytes": bytes}));
             }
         }
+        report.insert("focus_points".into(), serde_json::json!(self.focus_info()));
         report.into()
+    }
+    pub fn focus_info(&self) -> Option<protocol::FocusInfo> {
+        if self.focus_updated?.elapsed() > Duration::from_secs(2) {
+            return None;
+        }
+        protocol::focus_info(self.properties.get(&0xd1d3)?)
+            .ok()
+            .flatten()
+    }
+    pub fn autofocus_active(&self) -> bool {
+        self.autofocus_until.is_some()
+    }
+    pub fn focus_mode(&self) -> Option<u32> {
+        self.numeric(0xd108).ok()
+    }
+    pub fn af_method(&self) -> Option<u32> {
+        self.numeric(0xd1ba).ok()
     }
     pub fn start_live_view(&mut self) -> Result<()> {
         self.poll()?;
@@ -133,6 +160,12 @@ impl<'a, 'c> Session<'a, 'c> {
     pub fn frame(&mut self) -> Result<Vec<u8>> {
         let deadline = Instant::now() + Duration::from_secs(3);
         loop {
+            if self
+                .autofocus_until
+                .is_some_and(|until| Instant::now() >= until)
+            {
+                self.cancel_autofocus()?;
+            }
             self.poll()?;
             match self
                 .camera
@@ -149,27 +182,64 @@ impl<'a, 'c> Session<'a, 'c> {
     pub fn keep_awake(&self) -> Result<()> {
         retry(|| self.camera.no_data(0x911d, &[]))
     }
-    pub fn focus_step(&self, far: bool, step: u32) -> Result<()> {
+    pub fn focus_step(&mut self, far: bool, step: u32) -> Result<()> {
         ensure!((1..=3).contains(&step), "Focus step must be 1, 2 or 3");
+        self.poll()?;
+        ensure!(
+            self.focus_mode() != Some(3),
+            "Set the lens switch to AF to enable its focus motor"
+        );
+        if self.autofocus_active() {
+            self.cancel_autofocus()?;
+        }
         // Lens movement is not retried: a lost reply must not cause double motion.
         self.camera
             .no_data(0x9155, &[step | if far { 0x8000 } else { 0 }])
+            .context(
+                "Lens drive rejected; check lens AF switch, live-view mode and focus travel limit",
+            )?;
+        self.poll()
     }
-    pub fn autofocus(&mut self) -> Result<()> {
-        let result = (|| -> Result<()> {
-            self.camera.no_data(0x9154, &[])?;
+    pub fn begin_autofocus(&mut self) -> Result<()> {
+        ensure!(
+            self.focus_mode() != Some(3),
+            "Set the lens switch to AF first"
+        );
+        self.camera.no_data(0x9154, &[])?;
+        self.autofocus_until = Some(Instant::now() + Duration::from_secs(2));
+        Ok(())
+    }
+    pub fn cancel_autofocus(&mut self) -> Result<()> {
+        self.camera.no_data(0x9160, &[])?;
+        self.autofocus_until = None;
+        Ok(())
+    }
+    pub fn autofocus(&mut self) -> Result<u32> {
+        let result = (|| -> Result<u32> {
+            self.begin_autofocus()?;
             let until = Instant::now() + Duration::from_secs(2);
+            let mut frames = 0;
             while Instant::now() < until {
-                self.poll()?;
-                thread::sleep(Duration::from_millis(100));
+                self.frame()?;
+                frames += 1;
             }
-            Ok(())
+            Ok(frames)
         })();
-        let cancelled = self.camera.no_data(0x9160, &[]);
-        result?;
-        cancelled
+        let cancelled = if self.autofocus_active() {
+            self.cancel_autofocus()
+        } else {
+            Ok(())
+        };
+        let frames = result?;
+        cancelled?;
+        Ok(frames)
     }
     pub fn stop(&mut self) -> Result<()> {
+        let focus_result = if self.autofocus_active() {
+            self.cancel_autofocus()
+        } else {
+            Ok(())
+        };
         let output_result = self
             .original_output
             .take()
@@ -182,6 +252,7 @@ impl<'a, 'c> Session<'a, 'c> {
             .transpose();
         output_result?;
         mode_result?;
+        focus_result?;
         Ok(())
     }
 }

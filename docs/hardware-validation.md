@@ -1,4 +1,26 @@
-# Initial validation — September 10, 2026
+# Hardware validation
+
+## Version 0.3.1 — September 11, 2026
+
+The same T3i and Windows machine were used for this patch. The user confirmed audible/visible lens movement after one Near step 3 and one Far step 3. Studio now defaults to Large steps and offers all three sizes. Autofocus retrieved **29 live frames** during its bounded request; command completion is not proof of focus lock. The camera reported AF method **1 (Live)** and returned **no current FocusInfoEx point positions**, including after autofocus. The experimental marker parser/geometry have automated coverage, but live marker alignment remains unverified.
+
+| Check | Result |
+|---|---|
+| Native USB benchmark before scaling | 45 changed JPEG payloads, 1056 × 704, 2.480 seconds, 18.15 delivered fps including decode |
+| Actual T3i + Yeti local MP4 | H.264 1920 × 1080, 135 decoded frames, 8.084567 seconds (16.70 fps) |
+| Yeti audio in that file | AAC, start 0.011 seconds, duration 8.085333 seconds; end within 12 ms of video |
+| Complete real-camera MP4 decode | Both streams decoded without errors |
+| Generated landscape + real Yeti | 1920 × 1080, 103 frames, 6.101867 seconds; audio end within 10 ms |
+| Generated portrait recording | 1080 × 1920, 72 frames, 4.111100 seconds |
+| Updated GUI default | Physically landscape camera visibly upright at 0°, 1920 × 1080 |
+| Preview hidden + registered Windows camera | DirectShow consumer recorded moving 1920 × 1080 video; all 108 decoded frames differed; Studio remained connected |
+| Portrait preset + registered Windows camera | DirectShow consumer recorded 1080 × 1920, 65 decoded frames; complete decode passed |
+| Hide/show preview | Image uploads stop while hidden; live image resumes when shown |
+| Native component update | Registered Program Files DLL hash matches tested build; Windows Frame Server needed restarting to release the old DLL |
+
+Full build checks passed: **20 Rust tests**, formatting/lint, **16 native source formats** (eight dimensions in NV12/RGB32), and six cross-process checks comparing all RGB pixels and offline clearing at 704 × 1056, 1920 × 1080 and 1080 × 1920. Controller tests exercise the new default, a portrait reconfiguration, framing locks during recording and MP4 finalization.
+
+1080 output is **upscaled USB live view**. The output frame rate depends on camera delivery and processing; this short 1080 recording was slower than the native benchmark. Timestamp checks do not establish perceptual lip-sync or long-session drift correction. OBS 0.3.0 compatibility below remains the prior baseline; this patch's new formats were tested through the registered DirectShow camera and direct Media Foundation readers. Zoom/Meet/TikTok and simultaneous consumers remain unverified. Personal test media stays local and is excluded from releases.
 
 ## Version 0.3 virtual camera / OBS
 

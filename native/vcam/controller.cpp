@@ -32,8 +32,8 @@ void validate(IMFMediaSource* source, DWORD format) {
     check(MFGetAttributeSize(type.Get(), MF_MT_FRAME_SIZE, &width, &height), "Get dimensions");
     GUID subtype;
     check(type->GetGUID(MF_MT_SUBTYPE, &subtype), "Get pixel format");
-    const UINT32 sizes[6][2] = {{1280,720},{720,1280},{704,1056},{594,1056},{1056,704},{1056,594}};
-    if (format >= 12 || width != sizes[format / 2][0] || height != sizes[format / 2][1]
+    const UINT32 sizes[8][2] = {{1920,1080},{1080,1920},{704,1056},{594,1056},{1056,704},{1056,594},{1280,720},{720,1280}};
+    if (format >= 16 || width != sizes[format / 2][0] || height != sizes[format / 2][1]
         || subtype != (format % 2 == 0 ? MFVideoFormat_NV12 : MFVideoFormat_RGB32))
         throw std::runtime_error("Native format does not match its advertised profile");
     check(reader->SetStreamSelection(0, TRUE), "Select stream");
@@ -101,8 +101,14 @@ int wmain(int argc, wchar_t** argv) {
                 ComPtr<IMFSourceReader> reader;
                 check(MFCreateSourceReaderFromMediaSource(source.Get(), nullptr, &reader), "Create bridge reader");
                 ComPtr<IMFMediaType> type;
-                check(reader->GetNativeMediaType(0, 5, &type), "Get native portrait RGB32");
-                check(reader->SetCurrentMediaType(0, nullptr, type.Get()), "Choose native portrait");
+                const std::wstring mode = argv[4];
+                const bool landscape = mode.find(L"landscape") != std::wstring::npos;
+                const bool portrait = mode.find(L"portrait") != std::wstring::npos;
+                const bool live = mode.rfind(L"live", 0) == 0;
+                const UINT32 width = landscape ? 1920 : portrait ? 1080 : 704;
+                const UINT32 height = landscape ? 1080 : portrait ? 1920 : 1056;
+                check(reader->GetNativeMediaType(0, landscape ? 1 : portrait ? 3 : 5, &type), "Get bridge RGB32 format");
+                check(reader->SetCurrentMediaType(0, nullptr, type.Get()), "Choose bridge dimensions");
                 check(reader->SetStreamSelection(0, TRUE), "Select bridge stream");
                 LONGLONG previous = -1;
                 for (int frame = 0; frame < 4; ++frame) {
@@ -115,8 +121,7 @@ int wmain(int argc, wchar_t** argv) {
                     check(sample->ConvertToContiguousBuffer(&buffer), "Get bridge pixels");
                     BYTE* bytes = nullptr; DWORD count = 0;
                     check(buffer->Lock(&bytes, nullptr, &count), "Lock bridge frame");
-                    const bool live = std::wstring(argv[4]) == L"live";
-                    bool valid = count == 704 * 1056 * 4;
+                    bool valid = count == width * height * 4;
                     for (DWORD at = 0; valid && at < count; at += 4) {
                         valid = bytes[at] == (live ? 56 : 0) && bytes[at+1] == (live ? 34 : 0) && bytes[at+2] == (live ? 12 : 0);
                     }
@@ -124,10 +129,10 @@ int wmain(int argc, wchar_t** argv) {
                     if (!valid) throw std::runtime_error("Bridge frame did not match producer pixels / offline black");
                 }
                 reader.Reset(); source->Shutdown(); activate->DetachObject();
-                std::cout << "PASS: cross-process RGB pixels and native portrait dimensions (" << (std::wstring(argv[4]) == L"live" ? "live" : "offline") << ").\n";
+                std::cout << "PASS: cross-process RGB pixels at " << width << "x" << height << " (" << (live ? "live" : "offline") << ").\n";
             } else {
             check(activate->SetUINT32(OpenEosTestAttribute, 1), "Enable explicit test pattern");
-            for (DWORD format = 0; format < 12; ++format) {
+            for (DWORD format = 0; format < 16; ++format) {
                 ComPtr<IMFMediaSource> source;
                 check(activate->ActivateObject(IID_PPV_ARGS(&source)), "Activate camera source");
                 try { validate(source.Get(), format); }

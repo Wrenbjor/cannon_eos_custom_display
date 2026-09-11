@@ -72,20 +72,11 @@ impl Frame {
     }
     pub fn crop(self, aspect: Aspect) -> Result<Self> {
         let (w, h) = (u32::from(self.width), u32::from(self.height));
-        let (mut cw, mut ch) = match aspect {
-            Aspect::Native => (w, h),
-            Aspect::Landscape if w * 9 > h * 16 => (h * 16 / 9, h),
-            Aspect::Landscape => (w, w * 9 / 16),
-            Aspect::Portrait if w * 16 > h * 9 => (h * 9 / 16, h),
-            Aspect::Portrait => (w, w * 16 / 9),
-        };
-        cw &= !1;
-        ch &= !1;
+        let [x, y, cw, ch] = crop_bounds(w, h, aspect);
         ensure!(cw >= 2 && ch >= 2, "Frame is too small for video");
         if cw == w && ch == h {
             return Ok(self);
         }
-        let (x, y) = ((w - cw) / 2, (h - ch) / 2);
         let mut rgb = Vec::with_capacity((cw * ch * 3) as usize);
         for row in y..y + ch {
             let start = ((row * w + x) * 3) as usize;
@@ -96,6 +87,49 @@ impl Frame {
             height: ch as u16,
             rgb,
         })
+    }
+    /// Bilinear scaling for standard video outputs; it adds no sensor detail.
+    pub fn resize(self, width: u16, height: u16) -> Result<Self> {
+        ensure!(
+            width >= 2 && height >= 2 && u32::from(width) * u32::from(height) <= 4_000_000,
+            "Invalid output dimensions"
+        );
+        let (sw, sh, dw, dh) = (
+            self.width as usize,
+            self.height as usize,
+            width as usize,
+            height as usize,
+        );
+        ensure!(
+            sw >= 2 && sh >= 2 && self.rgb.len() == sw * sh * 3,
+            "Invalid RGB frame"
+        );
+        if sw == dw && sh == dh {
+            return Ok(self);
+        }
+        // Fixed-point interpolation and precomputed columns keep full-HD output inexpensive.
+        let axis = |i: usize, source: usize, dest: usize| {
+            let p = i * (source - 1) * 256 / (dest - 1);
+            (p / 256, (p / 256 + 1).min(source - 1), (p % 256) as u32)
+        };
+        let columns: Vec<_> = (0..dw).map(|x| axis(x, sw, dw)).collect();
+        let mut rgb = vec![0; dw * dh * 3];
+        for y in 0..dh {
+            let (y0, y1, fy) = axis(y, sh, dh);
+            for (x, &(x0, x1, fx)) in columns.iter().enumerate() {
+                for c in 0..3 {
+                    let a = u32::from(self.rgb[(y0 * sw + x0) * 3 + c]);
+                    let b = u32::from(self.rgb[(y0 * sw + x1) * 3 + c]);
+                    let d = u32::from(self.rgb[(y1 * sw + x0) * 3 + c]);
+                    let e = u32::from(self.rgb[(y1 * sw + x1) * 3 + c]);
+                    rgb[(y * dw + x) * 3 + c] = (((a * (256 - fx) + b * fx) * (256 - fy)
+                        + (d * (256 - fx) + e * fx) * fy
+                        + 32768)
+                        >> 16) as u8;
+                }
+            }
+        }
+        Ok(Self { width, height, rgb })
     }
     pub fn nv12(&self) -> Result<Vec<u8>> {
         let (w, h) = (self.width as usize, self.height as usize);
@@ -129,6 +163,51 @@ impl Frame {
     }
 }
 
+pub fn crop_bounds(w: u32, h: u32, aspect: Aspect) -> [u32; 4] {
+    let (cw, ch) = match aspect {
+        Aspect::Native => (w, h),
+        Aspect::Landscape if w * 9 > h * 16 => (h * 16 / 9, h),
+        Aspect::Landscape => (w, w * 9 / 16),
+        Aspect::Portrait if w * 16 > h * 9 => (h * 9 / 16, h),
+        Aspect::Portrait => (w, w * 16 / 9),
+    };
+    let (cw, ch) = (cw & !1, ch & !1);
+    [(w - cw) / 2, (h - ch) / 2, cw, ch]
+}
+
+/// Match a sensor-space overlay to the very same rotation and crop as the pixels.
+pub fn transform_rect(
+    rect: [f32; 4],
+    width: u16,
+    height: u16,
+    rotation: u16,
+    aspect: Aspect,
+) -> Option<[f32; 4]> {
+    let rotate = |x: f32, y: f32| match rotation {
+        90 => (1.0 - y, x),
+        180 => (1.0 - x, 1.0 - y),
+        270 => (y, 1.0 - x),
+        _ => (x, y),
+    };
+    let (a, b) = (rotate(rect[0], rect[1]), rotate(rect[2], rect[3]));
+    let (w, h) = if rotation == 90 || rotation == 270 {
+        (height, width)
+    } else {
+        (width, height)
+    };
+    let [x, y, cw, ch] = crop_bounds(u32::from(w), u32::from(h), aspect);
+    if cw == 0 || ch == 0 {
+        return None;
+    }
+    let r = [
+        ((a.0.min(b.0) * f32::from(w) - x as f32) / cw as f32).clamp(0.0, 1.0),
+        ((a.1.min(b.1) * f32::from(h) - y as f32) / ch as f32).clamp(0.0, 1.0),
+        ((a.0.max(b.0) * f32::from(w) - x as f32) / cw as f32).clamp(0.0, 1.0),
+        ((a.1.max(b.1) * f32::from(h) - y as f32) / ch as f32).clamp(0.0, 1.0),
+    ];
+    (r[2] > r[0] && r[3] > r[1]).then_some(r)
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Aspect {
     #[default]
@@ -140,6 +219,41 @@ pub enum Aspect {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bilinear_resize_preserves_corners_and_blends_the_center() {
+        let frame = Frame {
+            width: 2,
+            height: 2,
+            rgb: [0, 64, 128, 192].into_iter().flat_map(|v| [v; 3]).collect(),
+        };
+        let resized = frame.resize(3, 3).unwrap();
+        assert_eq!(labels(&resized), [0, 32, 64, 64, 96, 128, 128, 160, 192]);
+        let unchanged = resized.rgb.clone();
+        assert_eq!(resized.resize(3, 3).unwrap().rgb, unchanged);
+        assert!(labelled().resize(0, 1080).is_err());
+        assert!(labelled().resize(4096, 4096).is_err());
+    }
+    #[test]
+    fn focus_overlay_tracks_rotations_and_clips_the_crop() {
+        let rect = [0.0, 0.0, 0.25, 0.5];
+        for (rotation, expected) in [
+            (0, rect),
+            (90, [0.5, 0.0, 1.0, 0.25]),
+            (180, [0.75, 0.5, 1.0, 1.0]),
+            (270, [0.0, 0.75, 0.5, 1.0]),
+        ] {
+            assert_eq!(
+                transform_rect(rect, 800, 600, rotation, Aspect::Native),
+                Some(expected)
+            );
+        }
+        // The 800x450 crop removes the top and bottom 75 pixels.
+        assert!(transform_rect([0.1, 0.0, 0.2, 0.1], 800, 600, 0, Aspect::Landscape).is_none());
+        assert_eq!(
+            transform_rect([0.1, 0.0, 0.2, 0.5], 800, 600, 0, Aspect::Landscape),
+            Some([0.1, 0.0, 0.2, 0.5])
+        );
+    }
     fn labelled() -> Frame {
         Frame {
             width: 3,

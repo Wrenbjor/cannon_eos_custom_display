@@ -67,6 +67,9 @@ struct Studio {
     sequence: u64,
     closing: bool,
     notice: Option<String>,
+    show_preview: bool,
+    show_focus: bool,
+    focus_step: u32,
 }
 impl Studio {
     fn new() -> Self {
@@ -85,6 +88,9 @@ impl Studio {
             sequence: 0,
             closing: false,
             notice: None,
+            show_preview: true,
+            show_focus: true,
+            focus_step: 3,
         }
     }
     fn send(&mut self, command: Command) {
@@ -108,7 +114,10 @@ impl eframe::App for Studio {
         if self.closing && state.phase == Phase::Closed {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
-        if state.sequence != self.sequence
+        let preview_visible =
+            self.show_preview && !ctx.input(|i| i.viewport().minimized.unwrap_or(false));
+        if preview_visible
+            && state.sequence != self.sequence
             && let Some(frame) = &state.frame
         {
             let image = egui::ColorImage::from_rgb(
@@ -123,8 +132,9 @@ impl eframe::App for Studio {
             }
             self.sequence = state.sequence;
         }
-        if state.frame.is_none() {
+        if state.frame.is_none() || !preview_visible {
             self.texture = None;
+            self.sequence = 0;
         }
         let adjustable =
             matches!(state.phase, Phase::Preview | Phase::Disconnected) && !self.closing;
@@ -140,7 +150,7 @@ impl eframe::App for Studio {
                         match state.phase {
                             Phase::Disconnected => "Camera disconnected",
                             Phase::Connecting => "Connecting…",
-                            Phase::Preview => "Live preview",
+                            Phase::Preview => "Camera connected",
                             Phase::Starting => "Starting recording…",
                             Phase::Recording => "● Recording",
                             Phase::Saving => "Saving MP4…",
@@ -165,8 +175,31 @@ impl eframe::App for Studio {
                     ui.add_space(12.0);
                     ui.heading("Framing");
                     ui.add_enabled_ui(adjustable, |ui| {
-                        let old = (self.settings.rotation, self.settings.aspect);
-                        egui::ComboBox::from_label("Rotation")
+                        let old = self.settings;
+                        ui.horizontal(|ui| {
+                            if ui.button("Landscape").clicked() {
+                                self.settings.rotation = 0;
+                                self.settings.aspect = Aspect::Landscape;
+                            }
+                            if ui.button("Portrait / mobile").clicked() {
+                                self.settings.rotation = 90;
+                                self.settings.aspect = Aspect::Portrait;
+                            }
+                        });
+                        if ui.button("Rotate 90° clockwise").clicked() {
+                            self.settings.rotation = (self.settings.rotation + 90) % 360;
+                            if self.settings.aspect != Aspect::Native {
+                                self.settings.aspect = if self.settings.rotation.is_multiple_of(180) { Aspect::Landscape } else { Aspect::Portrait };
+                            }
+                        }
+                        ui.small(format!("Camera rotation: {}° clockwise", self.settings.rotation));
+                        egui::ComboBox::from_label("Output quality")
+                            .selected_text(if self.settings.full_hd { "1080 output (upscaled)" } else { "Native USB (less processing)" })
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut self.settings.full_hd, true, "1080 output (upscaled)");
+                                ui.selectable_value(&mut self.settings.full_hd, false, "Native USB (less processing)");
+                            });
+                        egui::ComboBox::from_label("Fine rotation")
                             .selected_text(format!("{}° clockwise", self.settings.rotation))
                             .show_ui(ui, |ui| {
                                 for degrees in [0, 90, 180, 270] {
@@ -200,7 +233,7 @@ impl eframe::App for Studio {
                                     "Landscape 16:9",
                                 );
                             });
-                        if old != (self.settings.rotation, self.settings.aspect) {
+                        if old != self.settings {
                             self.send(Command::Configure(self.settings));
                         }
                     });
@@ -210,7 +243,10 @@ impl eframe::App for Studio {
                             frame.width, frame.height, state.fps
                         ));
                     }
-                    ui.small("The saved video uses this exact orientation and crop. No upscaling.");
+                    if state.source_size.0 > 0 { ui.small(format!("Camera USB: {} × {}. 1080 output is upscaled.", state.source_size.0, state.source_size.1)); }
+                    ui.small("Preview, recording and virtual camera share the same framing. Reset rotation in OBS/TikTok to 0°.");
+                    ui.checkbox(&mut self.show_preview, "Show Studio preview");
+                    ui.small("Hide preview to reduce display work while streaming. Keep Studio open.");
                     ui.separator();
                     ui.heading("Use in OBS / other apps");
                     if ui.add_enabled(state.frame.is_some() && !self.closing, egui::Button::new(if state.virtual_camera { "Stop virtual camera" } else { "Start virtual camera" })).clicked() {
@@ -315,19 +351,38 @@ impl eframe::App for Studio {
                     ui.separator();
                     ui.add_enabled_ui(state.phase == Phase::Preview && !self.closing, |ui| {
                         ui.heading("Focus");
+                        egui::ComboBox::from_label("Lens step")
+                            .selected_text(match self.focus_step { 1 => "Small", 2 => "Medium", _ => "Large" })
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut self.focus_step, 1, "Small");
+                                ui.selectable_value(&mut self.focus_step, 2, "Medium");
+                                ui.selectable_value(&mut self.focus_step, 3, "Large");
+                            });
                         ui.horizontal(|ui| {
                             if ui.button("Near").clicked() {
-                                self.send(Command::Focus(false));
+                                self.send(Command::Focus { far: false, step: self.focus_step });
                             }
                             if ui.button("Far").clicked() {
-                                self.send(Command::Focus(true));
+                                self.send(Command::Focus { far: true, step: self.focus_step });
                             }
-                            if ui.button("Autofocus").clicked() {
+                            if ui.add_enabled(!state.autofocus_active, egui::Button::new("Autofocus")).clicked() {
                                 self.send(Command::Autofocus);
                             }
                         });
                     });
                     ui.small("Focus controls require a compatible lens in AF mode.");
+                    if let Some(method) = state.af_method {
+                        ui.small(match method {
+                            0 => "Camera AF method: Quick (may interrupt live view)",
+                            1 => "Camera AF method: Live (single focus area)",
+                            2 => "Camera AF method: Live face detection",
+                            _ => "Camera AF method: camera-specific",
+                        });
+                    }
+                    if state.focus_mode == Some(3) { ui.colored_label(Color32::YELLOW, "Lens is reporting MF. Switch the lens to AF."); }
+                    if !state.focus_message.is_empty() { ui.small(&state.focus_message); }
+                    ui.checkbox(&mut self.show_focus, "Focus markers (experimental)");
+                    ui.small(if state.focus_points.is_empty() { "No current focus-point positions reported by the camera." } else { "Camera-reported points: yellow = selected, not confirmed focus lock. Live-view alignment is experimental. Preview only." });
                     if ui
                         .add_enabled(
                             state.phase == Phase::Disconnected && !self.closing,
@@ -349,15 +404,32 @@ impl eframe::App for Studio {
             }
         });
         egui::CentralPanel::default().show(ctx, |ui| {
-            if let Some(texture) = &self.texture {
+            if !self.show_preview {
+                ui.centered_and_justified(|ui| { ui.label("Studio preview hidden\nCamera output and recording continue."); });
+            } else if let Some(texture) = &self.texture {
                 let available = ui.available_size();
                 let size = texture.size_vec2();
                 let scale = (available.x / size.x).min(available.y / size.y);
-                ui.centered_and_justified(|ui| { ui.add(egui::Image::new(texture).fit_to_exact_size(size * scale)); });
+                let image_rect = egui::Rect::from_center_size(ui.max_rect().center(), size * scale);
+                ui.painter().image(texture.id(), image_rect,
+                    egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)), Color32::WHITE);
+                    if self.show_focus {
+                        for point in &state.focus_points {
+                            let [x0,y0,x1,y1] = point.rect;
+                            let rect = egui::Rect::from_min_max(
+                                image_rect.min + image_rect.size() * egui::vec2(x0,y0),
+                                image_rect.min + image_rect.size() * egui::vec2(x1,y1));
+                            ui.painter().rect_stroke(rect, 0.0, egui::Stroke::new(2.0, if point.selected { Color32::YELLOW } else { Color32::GRAY }), egui::StrokeKind::Inside);
+                        }
+                    }
             } else {
                 ui.centered_and_justified(|ui| { ui.label("Switch on the T3i and connect USB.\nUse Reconnect camera if it has gone to sleep."); });
             }
         });
-        ctx.request_repaint_after(Duration::from_millis(33));
+        ctx.request_repaint_after(Duration::from_millis(if preview_visible {
+            50
+        } else {
+            250
+        }));
     }
 }

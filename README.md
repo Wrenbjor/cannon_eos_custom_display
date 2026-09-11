@@ -6,7 +6,7 @@ An open-source Windows utility for the Canon EOS 600D / Rebel T3i. The target is
 
 ## Download a compiled build
 
-Get the **Windows x64 ZIP** from [the v0.3.0 preview release](https://github.com/Wrenbjor/cannon_eos_custom_display/releases/tag/v0.3.0), extract the entire folder, and read START-HERE.md. Choose the asset named `Open-EOS-Studio-0.3.0-windows-x64.zip`; GitHub's "Source code" archives do not contain executables. A SHA-256 checksum accompanies the ZIP.
+Get the **Windows x64 ZIP** from [the v0.3.1 preview release](https://github.com/Wrenbjor/cannon_eos_custom_display/releases/tag/v0.3.1), extract the entire folder, and read START-HERE.md. Choose the asset named `Open-EOS-Studio-0.3.1-windows-x64.zip`; GitHub's "Source code" archives do not contain executables. A SHA-256 checksum accompanies the ZIP.
 
 To run it, you need **Windows 11 x64**, Microsoft's current [Visual C++ x64 Redistributable](https://aka.ms/vc14/vc_redist.x64.exe), Windows media components and a graphics driver supporting OpenGL 3.3 or newer. Windows N editions also require the [Media Feature Pack](https://support.microsoft.com/en-us/windows/experience/platform-variants/media-feature-pack-for-windows-n). No Rust, C++ compiler, CMake, Python, FFmpeg or PowerShell 7 installation is needed to run the compiled app. Administrator rights are needed once for virtual-camera registration; normal use runs without elevation. The preview binaries are not code-signed.
 
@@ -17,10 +17,14 @@ Want to compile it? See **[Build on Windows 11 x64](#build-on-windows-11-x64)** 
 1. From a packaged build, run **Install virtual camera.cmd** once and accept the Windows administrator prompt. From source, run `./scripts/install-camera.ps1`. This registers the source DLL in a protected Program Files directory.
 2. Open **open-eos-studio.exe**, wait for live preview, set rotation/crop and click **Start virtual camera**. Keep Studio running. The `--virtual-camera` launch option starts sharing when preview becomes ready.
 3. In OBS, add a **Video Capture Device** source and choose **Open EOS Camera (Windows Virtual Camera)**.
-4. Set **Resolution/FPS Type → Custom**. Match Studio: full portrait **704 × 1056**, portrait 9:16 **594 × 1056**, full landscape **1056 × 704**, or landscape 16:9 **1056 × 594**. Use 30 fps for Windows output; this repeats the latest available USB frame, not 30 unique sensor frames per second.
+4. Set **Resolution/FPS Type → Custom**. Match Studio's default **1920 × 1080** landscape output, or choose **1080 × 1920** for Portrait / mobile. Use 30 fps for Windows output; this repeats the latest available USB frame, not 30 unique sensor frames per second. With **Native USB** quality, match full portrait **704 × 1056**, portrait crop **594 × 1056**, full landscape **1056 × 704**, or landscape crop **1056 × 594**.
 5. Under OBS Settings → Video, match the base canvas and output dimensions to the file shape you want. Select your separate microphone in OBS or add an Audio Input Capture source.
 
 Studio rotates the pixels before sharing, so no OBS source rotation is required. If OBS requests a different shape, the source fits the image with black borders rather than stretching it. 1280 × 720 and 720 × 1280 compatibility formats are also offered; they do not add camera detail. Matching native dimensions avoids resizing.
+
+**Upgrading from 0.3.0:** close Studio and camera clients, then run the new virtual-camera installer to update the DLL's available resolutions. Studio now starts at **0° landscape**, replacing the old 90° default. Reset any compensating 270° rotation in OBS/TikTok to **0°**. Choose Landscape, Portrait / mobile, or Rotate 90° in Studio. Apps may need their capture source reopened to select a new resolution.
+
+Uncheck **Show Studio preview** to stop its image uploads and reduce redraws while capture, local recording and virtual-camera output continue. Minimizing Studio also pauses image uploads. Keep Studio running; closing it stops capture. The **Native USB** quality option also avoids Studio's 1080 scaling work.
 
 Stop virtual camera removes the session device; closing Studio also stops it. On USB disconnect the last frame expires after one second, then the device is removed as camera cleanup completes. Reconnect the camera and start sharing again. Do not reinstall while camera clients use the DLL. To remove COM registration, close clients and run `./scripts/install-camera.ps1 -Unregister` (packaged script: `Install virtual camera.ps1`). Installed files remain for later removal.
 
@@ -31,7 +35,7 @@ Stop virtual camera removes the session device; closing Studio also stops it. On
 Launch **open-eos-studio.exe** from an extracted build, or `target/release/open-eos-studio.exe` after building. This is a normal desktop application; it does not need administrator rights or camera registration.
 
 1. Connect the T3i by USB and switch it on. Stop conflicting camera clients. If it was asleep or disconnected, use **Reconnect camera**.
-2. Choose rotation and crop while watching the live preview. Full camera image preserves the available USB image; Portrait 9:16 and Landscape 16:9 crop the center without stretching or upscaling.
+2. Choose **Landscape** or **Portrait / mobile** while watching the preview. Landscape starts at 0° and 1920 × 1080; Portrait / mobile applies a 90° clockwise turn and outputs 1080 × 1920. Use Rotate 90° or Fine rotation if the camera is mounted the other way. Crops take the center without stretching; **1080 output** upscales those pixels. Choose **Native USB** to disable that scaling. Full camera image preserves the available field of view.
 3. Select your separate microphone, Windows default, or No audio. Microphones must currently use a 44.1 or 48 kHz mono/stereo Windows format. Plug in microphones before launching the app.
 4. Choose the save folder and click **Start recording**. The microphone meter runs during recording. Click **Stop and save**, then **Play last recording**.
 
@@ -39,7 +43,7 @@ Recordings default to a `Recordings` folder beside the executable. Framing and m
 
 MP4 files contain H.264 video and optional AAC audio, using Windows encoders. Preview and saved video use the same transformed pixels. Actual frame timestamps preserve elapsed time when USB delivery varies. Files are never overwritten. An interrupted or failed recording may remain as `*.recording.mp4`; that name means successful completion was not confirmed. Settings are not yet persisted between launches.
 
-**Resolution:** this T3i supplies 1056 × 704 USB preview pixels, or 704 × 1056 after a quarter turn. A rotated 9:16 center crop is 594 × 1056; a landscape 16:9 crop is 1056 × 594. These are live-view recordings, not native 1080p sensor video or full-resolution still photos.
+**Resolution:** this T3i supplies 1056 × 704 USB preview pixels, or 704 × 1056 after a quarter turn. A rotated 9:16 center crop is 594 × 1056; a landscape 16:9 crop is 1056 × 594. The default 1080 output scales those crops to 1080 × 1920 or 1920 × 1080. Full camera image with 1080 quality keeps the 3:2 aspect ratio at 1620 × 1080 (or 1080 × 1620); the virtual-camera canvas fits that image with borders. Upscaling adds no native detail. These remain live-view recordings, not native 1080p sensor video or full-resolution still photos.
 
 ## What works now
 
@@ -49,8 +53,9 @@ MP4 files contain H.264 video and optional AAC audio, using Windows encoders. Pr
 - Rotate the actual pixels by 0°, 90°, 180° or 270°. A quarter turn produces **704 × 1056** output; it does not rely on EXIF/display rotation.
 - Preview, center crop and record MP4 video in a desktop window, with a separate Windows microphone and a recording level meter.
 - Measure USB frame delivery with JPEG decoding and rotation included; Ctrl+C stops the benchmark and runs session cleanup.
-- Experimental one-shot lens-drive and autofocus commands. Command acceptance is not proof of optical movement or successful focus lock.
-- Share the transformed live feed as a Windows camera. Six resolutions are offered in NV12 and RGB32; automated tests exercise all twelve formats and the cross-process RGB transport and offline clearing.
+- Near/Far lens drive with Small, Medium and Large steps; Studio defaults to Large. The user confirmed physical movement with step 3 on the development camera. Autofocus continues retrieving frames during its bounded request; no focus-lock claim is made.
+- Experimental preview-only focus markers from valid, recent Canon FocusInfoEx data. Selected points are yellow; this is not a focus-lock indication. The development T3i currently reports no point positions in Live AF mode, so marker alignment remains unverified. No invented target box is drawn; output video stays free of overlays.
+- Share the transformed live feed as a Windows camera. Eight resolutions are offered in NV12 and RGB32; automated tests exercise all sixteen formats and cross-process RGB transport and offline clearing, including both 1080 shapes.
 
 Still missing: full-resolution JPEG/CR2 capture/download, exposure controls, mode changes, persistent profiles, a signed production installer, reliable multi-application use, and remaining application compatibility tests. See [the development plan](docs/development-plan.md) and [validation record](docs/hardware-validation.md).
 
@@ -78,7 +83,7 @@ cd cannon_eos_custom_display
 
 Run those commands in **PowerShell 7** as a normal user. If execution policy blocks the reviewed script, use `pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/build.ps1`. HTTPS cloning does not require an SSH key or GitHub login.
 
-The full script compiles the GUI, CLI and C++ source, then runs formatting, lint, Rust tests, twelve native streaming formats and a cross-process camera bridge test. Tests use generated frames/audio and temporary files; no camera, microphone capture or camera registration is required. `cargo build --release` alone builds only the Rust executables.
+The full script compiles the GUI, CLI and C++ source, then runs formatting, lint, Rust tests, sixteen native streaming formats and a cross-process camera bridge test. Tests use generated frames/audio and temporary files; no camera, microphone capture or camera registration is required. `cargo build --release` alone builds only the Rust executables.
 
 | Built file | Purpose |
 |---|---|
@@ -104,6 +109,7 @@ Connect the T3i by USB, switch it on and keep it awake. Close camera clients. Ca
 ./target/release/eos-camera.exe benchmark --frames 120 --rotate 90
 ./target/release/eos-camera.exe microphones
 ./target/release/eos-camera.exe record --seconds 10 --rotate 90 --crop portrait --microphone default --output captures/test.mp4
+./target/release/eos-camera.exe record --seconds 10 --crop landscape --full-hd --microphone default --output captures/1080.mp4
 ```
 
 `record` uses the same capture/recording worker as the GUI. `--microphone` also accepts `off` or an exact quoted input name. `--test-pattern` substitutes generated moving pixels for the camera, useful for recording tests; it still captures the selected microphone unless `--microphone off` is specified. Ctrl+C requests a clean stop.
@@ -119,6 +125,8 @@ Experimental focus commands require a compatible electronically controlled lens,
 ```
 
 Steps 1–3 are Canon's relative movement sizes, not distances. Autofocus runs for a bounded observation period and is then cancelled; it does not yet interpret focus-lock events. A focus command is never automatically repeated after an uncertain reply. The camera's physical mode dial remains authoritative.
+
+If Near/Far is too subtle, choose **Large (3)** and check that the lens switch is **AF**; MF disables remote motor control. Commands are available before local recording. Studio reports the camera's AF method (Quick, Live or face detection on the T3i), which is separate from exposure metering. Point positioning and changing the AF method from Studio are not implemented.
 
 The app serializes its own camera access within the Windows user session. It cannot coordinate competing Canon or third-party applications. Disconnects produce errors. Normal cleanup restores only live-view properties this process changed; if USB is removed or the process is killed, switch the camera off/on to reset it. Individual WPD calls can block according to the Windows driver's timeout, even though application retries are bounded.
 

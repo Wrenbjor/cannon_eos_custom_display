@@ -32,12 +32,14 @@ pub enum Phase {
 pub struct Settings {
     pub rotation: u16,
     pub aspect: Aspect,
+    pub full_hd: bool,
 }
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            rotation: 90,
-            aspect: Aspect::Native,
+            rotation: 0,
+            aspect: Aspect::Landscape,
+            full_hd: true,
         }
     }
 }
@@ -55,13 +57,19 @@ pub struct State {
     pub error: Option<String>,
     pub test_pattern: bool,
     pub virtual_camera: bool,
+    pub source_size: (u16, u16),
+    pub focus_points: Vec<crate::protocol::FocusPoint>,
+    pub focus_message: String,
+    pub autofocus_active: bool,
+    pub focus_mode: Option<u32>,
+    pub af_method: Option<u32>,
 }
 pub enum Command {
     Connect,
     Configure(Settings),
     Start(PathBuf, Microphone),
     Stop,
-    Focus(bool),
+    Focus { far: bool, step: u32 },
     Autofocus,
     VirtualCamera(bool),
 }
@@ -85,6 +93,12 @@ impl Controller {
             error: None,
             test_pattern,
             virtual_camera: false,
+            source_size: (0, 0),
+            focus_points: Vec::new(),
+            focus_message: String::new(),
+            autofocus_active: false,
+            focus_mode: None,
+            af_method: None,
         }));
         let (sender, receiver) = mpsc::sync_channel(16);
         let quit = Arc::new(AtomicBool::new(false));
@@ -128,6 +142,8 @@ impl Controller {
                         );
                         let mut s = thread_state.lock().unwrap();
                         s.frame = None;
+                        s.focus_points.clear();
+                        s.autofocus_active = false;
                         s.phase = Phase::Disconnected;
                         if let Err(e) = result {
                             s.error = Some(format!("{e:#}"));
@@ -314,18 +330,28 @@ fn capture_loop(
                     }
                     Command::Start(..) => {}
                     Command::Stop => save_recording(&mut recording, state),
-                    Command::Focus(far) if recording.is_none() => {
-                        if let Some(s) = &session
-                            && let Err(e) = s.focus_step(far, 1)
-                        {
-                            state.lock().unwrap().error = Some(format!("Focus: {e:#}"));
+                    Command::Focus { far, step } if recording.is_none() => {
+                        if let Some(s) = &mut session {
+                            let result = s.focus_step(far, step);
+                            let mut status = state.lock().unwrap();
+                            match result {
+                                Ok(()) => {
+                                    status.error = None;
+                                    status.focus_message = format!(
+                                        "{} step {step} accepted. Check sharpness in preview.",
+                                        if far { "Far" } else { "Near" }
+                                    );
+                                }
+                                Err(e) => status.error = Some(format!("Focus: {e:#}")),
+                            }
                         }
                     }
                     Command::Autofocus if recording.is_none() => {
-                        if let Some(s) = &mut session
-                            && let Err(e) = s.autofocus()
-                        {
-                            state.lock().unwrap().error = Some(format!("Autofocus: {e:#}"));
+                        if let Some(s) = &mut session {
+                            state.lock().unwrap().error = s
+                                .begin_autofocus()
+                                .err()
+                                .map(|e| format!("Autofocus: {e:#}"));
                         }
                     }
                     _ => {}
@@ -346,7 +372,46 @@ fn capture_loop(
                 thread::sleep(Duration::from_millis(33));
                 (test_frame(sequence), Instant::now())
             };
-            let frame = Arc::new(frame.rotate(settings.rotation)?.crop(settings.aspect)?);
+            let source_size = (frame.width, frame.height);
+            let focus_points = session
+                .as_ref()
+                .and_then(|s| s.focus_info())
+                .map(|info| {
+                    info.points
+                        .into_iter()
+                        .filter_map(|mut point| {
+                            point.rect = crate::frame::transform_rect(
+                                point.rect,
+                                source_size.0,
+                                source_size.1,
+                                settings.rotation,
+                                settings.aspect,
+                            )?;
+                            Some(point)
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let frame = frame.rotate(settings.rotation)?.crop(settings.aspect)?;
+            let frame = if settings.full_hd {
+                // Match aspect ratio without stretching full-sensor (3:2) mode.
+                let (w, h) = match settings.aspect {
+                    Aspect::Landscape => (1920, 1080),
+                    Aspect::Portrait => (1080, 1920),
+                    Aspect::Native if frame.width >= frame.height => (
+                        ((u32::from(frame.width) * 1080 / u32::from(frame.height)) & !1) as u16,
+                        1080,
+                    ),
+                    Aspect::Native => (
+                        1080,
+                        ((u32::from(frame.height) * 1080 / u32::from(frame.width)) & !1) as u16,
+                    ),
+                };
+                frame.resize(w, h)?
+            } else {
+                frame
+            };
+            let frame = Arc::new(frame);
             if let Some(p) = &mut publisher {
                 p.publish(Some(&frame))?;
             }
@@ -372,6 +437,17 @@ fn capture_loop(
             }
             s.sequence += 1;
             s.frame = Some(frame.clone());
+            s.source_size = source_size;
+            s.focus_points = focus_points;
+            let focusing = session.as_ref().is_some_and(|s| s.autofocus_active());
+            if s.autofocus_active && !focusing {
+                s.focus_message = "Autofocus request finished; focus lock is not verified.".into();
+            } else if focusing {
+                s.focus_message = "Autofocus running…".into();
+            }
+            s.autofocus_active = focusing;
+            s.focus_mode = session.as_ref().and_then(|s| s.focus_mode());
+            s.af_method = session.as_ref().and_then(|s| s.af_method());
             if fps_epoch.elapsed().as_secs_f64() >= 1.0 {
                 s.fps = f64::from(fps_frames) / fps_epoch.elapsed().as_secs_f64();
                 fps_epoch = Instant::now();
@@ -453,7 +529,15 @@ mod tests {
     fn changing_framing_then_recording_and_closing_finalizes_files() -> Result<()> {
         let controller = Controller::new(true, Settings::default());
         let result = (|| -> Result<()> {
-            wait(&controller, Phase::Preview)?;
+            let initial = wait(&controller, Phase::Preview)?.frame.unwrap();
+            assert_eq!((initial.width, initial.height), (1920, 1080));
+            controller.send(Command::Configure(Settings {
+                rotation: 90,
+                aspect: Aspect::Portrait,
+                full_hd: true,
+            }))?;
+            let portrait = wait(&controller, Phase::Preview)?.frame.unwrap();
+            assert_eq!((portrait.width, portrait.height), (1080, 1920));
             let unique = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)?
                 .as_nanos();
@@ -464,6 +548,7 @@ mod tests {
             controller.send(Command::Configure(Settings {
                 rotation: 0,
                 aspect: Aspect::Landscape,
+                full_hd: false,
             }))?;
             let preview = wait(&controller, Phase::Preview)?.frame.unwrap();
             assert_eq!((preview.width, preview.height), (640, 360));

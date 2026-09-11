@@ -18,7 +18,7 @@ EOS event and viewfinder records use little-endian length/type headers. The pars
 
 Vendored from [microsoft/Windows-Camera](https://github.com/microsoft/Windows-Camera/tree/d348797d2f5632ff3cb250960638091c4a1a75fb/Samples/VirtualCamera/VirtualCameraMediaSource), revision `d348797d2f5632ff3cb250960638091c4a1a75fb`. Copyright Microsoft Corporation; MIT license at native/vcam/third_party/MICROSOFT-LICENSE.txt.
 
-Local changes: a distinct COM class ID and name; a custom sample allocator usable by the direct source-reader test; landscape/portrait format descriptions; a moving, asymmetric test pattern; bounded frame production; and unlocking the pixel buffer even when frame generation fails. The sample's hardware-wrapper classes have been removed. Activation creates only this project's synthetic stream. Canon USB acquisition is implemented separately in Rust.
+Local changes: a distinct COM class ID and name; a custom sample allocator usable by the direct source-reader test; native and 1080 landscape/portrait formats; a moving, asymmetric diagnostic pattern; bounded frame production; a validated pipe reader for real frames; and unlocking the pixel buffer even when frame generation fails. The sample's hardware-wrapper classes have been removed. Studio supplies transformed Canon frames from Rust. Synthetic frames require an explicit diagnostic activation attribute.
 
 The adapter links Windows system libraries and the SDK's C++/WinRT headers. WIL 1.0.260126.7 is retrieved from NuGet with its SHA-256 pinned in CMakeLists.txt; its license and bundled third-party notices are in LICENSES. Rust package versions are pinned by Cargo.lock; each dependency retains its upstream license.
 
@@ -48,4 +48,10 @@ Video converts RGB to BT.709 limited-range NV12 and tags the encoded stream acco
 - [Canon 600D specifications](https://asia.canon/en/support/6200098100): original still-photo resolution is distinct from USB live view and camera-side movie recording.
 - [Dragonframe 600D support](https://www.dragonframe.com/camera-setup/canon_eos_600d/): documents 1056 × 704 live view. This was also measured directly on the development camera.
 
-Advertising a 1280 × 720, 720 × 1280 or future 1080p virtual output does not add native optical detail. The current Windows source emits synthetic frames, not upscaled camera video.
+Advertising 1280 × 720, 720 × 1280, 1920 × 1080 or 1080 × 1920 virtual output does not add native optical detail. Studio applies bilinear scaling after rotation/crop when 1080 output is selected; the Windows source fits the resulting frame inside the client's requested canvas without stretching. Original USB dimensions remain visible in Studio.
+
+## Focus metadata and lens drive
+
+The pinned libgphoto2 `config.c` documents relative lens drive 0x9155 (1–3 near, 0x8001–0x8003 far), focus mode 0xD108 and live-view AF method 0xD1BA. Studio sends each lens movement once and defaults to step 3. Autofocus 0x9154 is bounded to two seconds and cancelled with 0x9160 while live frames continue to be requested; individual Windows calls can still block.
+
+`ptp-pack.c` documents FocusInfoEx property 0xD1D3: coordinate dimensions, point size arrays, signed offsets from image center and selected-point bits. The parser validates lengths/counts before access and ignores empty placeholders. Only reports received in the last two seconds are eligible for the experimental overlay; this may hide unchanged event-only metadata rather than show stale points. The same rotation and crop geometry maps markers into the preview. Selection does not establish focus lock, and live-view alignment is not yet hardware-validated. The tested T3i in Live AF mode returned no current focus positions. Markers never enter recorded or virtual-camera pixels.

@@ -71,14 +71,20 @@ To use in OBS or another camera app:
 1. Run Install virtual camera.cmd once and accept the Windows administrator prompt.
 2. Open Studio, wait for live preview, then click Start virtual camera.
 3. In OBS add a Video Capture Device and select Open EOS Camera (Windows Virtual Camera).
-4. Set Resolution/FPS Type to Custom and use 704x1056 for the full portrait image,
-   594x1056 for 9:16 portrait crop, 1056x704 for full landscape, or 1056x594 for 16:9.
+4. Set Resolution/FPS Type to Custom: 1920x1080 landscape (default), or
+   1080x1920 for Portrait / mobile. Reset any old OBS rotation to 0 degrees.
 5. Set the OBS canvas/output dimensions to match if you want that file shape.
 6. Select your separate microphone in OBS. Keep Studio running.
 
 OBS 32.0.2 live preview and recording are verified. Zoom, Meet and browser
 compatibility still need individual tests. Rotation and crop come from Studio.
 USB live view is 1056 x 704, not native 1080p or full-resolution stills.
+1080 output upscales the USB image. Native USB quality avoids that scaling.
+Uncheck Show Studio preview to reduce display work while the camera stays live.
+Near/Far default to Large steps; keep the lens switch in AF mode.
+Focus markers are experimental and appear only if the camera reports positions.
+When upgrading, close Studio and camera clients and rerun the new installer
+to update the available Windows camera resolutions.
 Administrator access is needed only for the one-time virtual-camera registration.
 No Canon Webcam Utility or replacement USB driver is needed.
 Use one camera-consuming app at a time; mixed-resolution simultaneous
